@@ -14,8 +14,10 @@ class ActivityModel:
     _n_classes: int
     _look_back_window_size: int
     _activity_lstm: tf.keras.Model
+    _activity_lstm_trained: bool
+    _training_steps: int
     _data_file_path: str
-    _activity_classes: List[Tuple[re.Pattern, np.array]]
+    _activity_classes: List[Tuple[re.Pattern, np.array, str]]
     _x_train: np.array
     _y_train: np.array
     _x_test: np.array
@@ -26,51 +28,92 @@ class ActivityModel:
     _UP_DOWN = 2
     _PATTERN = 0
     _CLASS_AS_ONE_HOT = 1
+    _ACTIVTY_NAME = 2
 
     def __init__(self,
-                 data_file_path: str = '\\.data'):
+                 data_file_path: str = ".\data"):
         self._n_features = 3
         self._n_classes = 3
         self._look_back_window_size = 20
         self._activity_lstm = self.create_model()
+        self._activity_lstm_trained = False
+        self._training_steps = 500
         self._data_file_path = data_file_path  # check path exists and that there are files
         self._activity_classes = [
-            (re.compile('^circle.*\\.csv$'), np.array([1, 0, 0])),
-            (re.compile('^stationary.*\\.csv$'), np.array([0, 1, 0])),
-            (re.compile('^up-down.*\\.csv$'), np.array([0, 0, 1]))
+            (re.compile('^circle.*\\.csv$'), np.array([1, 0, 0]), "Circle"),
+            (re.compile('^stationary.*\\.csv$'), np.array([0, 1, 0]), "Stationary"),
+            (re.compile('^up-down.*\\.csv$'), np.array([0, 0, 1]), "Up Down")
         ]
-        self.load_data('.\data')
-        history = self._activity_lstm.fit(self._x_train, self._y_train, epochs=500, batch_size=32, verbose=2)
-        plt.plot(history.history['loss'])
-        plt.show()
-        res = self._activity_lstm.predict(self._x_test)
-        num_correct = np.sum(np.all((np.round(res, 0) == self._y_test), axis=1) * 1)
-        print("Test accuracy {}".format(num_correct / np.shape(self._x_test)[0]))
+        self._x_train = None
+        self._x_test = None
+        self._y_train = None
+        self._y_test = None
+        self._clean()
         return
 
-    def load_data(self,
-                  data_file_path: str) -> None:
+    def _clean(self) -> None:
+        """
+        Clean up any persistent training state
+        """
+        # checkpoint_files = glob.glob(join(self._checkpoint_file_path, "*"))
+        # for f in checkpoint_files:
+        #    remove(f)
+        return
+
+    def train(self) -> None:
+        """
+        Train the model on the loaed test data
+        """
+        self._clean()
+        if self._x_train is not None:
+            history = self._activity_lstm.fit(self._x_train,
+                                              self._y_train,
+                                              epochs=self._training_steps,
+                                              batch_size=32,
+                                              verbose=2,  # Print training commentary
+                                              validation_data=(self._x_test, self._y_test))
+            self._activity_lstm_trained = True
+            plt.plot(history.history['loss'])
+            plt.plot(history.history['val_loss'])
+            plt.show()
+        else:
+            print("Load data before training model")
+        return
+
+    def test(self) -> None:
+        """
+        Test the trained model on teh test data split out when the data was originally loaded.
+        """
+        if self._activity_lstm_trained:
+            # Used the trained model to predict classifications based on the test data
+            predictions = self._activity_lstm.predict(self._x_test)
+            # Count how many of the predictions are equal to the expected classifications
+            num_correct = np.sum(np.all((np.round(predictions, 0) == self._y_test), axis=1) * 1)
+
+            print("Test accuracy {}%".format(100 * (num_correct / np.shape(self._x_test)[0])))
+        else:
+            print("Train the model before running test")
+        return
+
+    def load_data(self) -> None:
         """
         Load all of the data files that are of known activity class and create x_train,y_train,x_test,y_test split
         in the given ratio.
-        :param data_file_path: The path where the data files are stored.
         """
         x_all = None
         y_all = None
-        data_files = [f for f in listdir(data_file_path) if isfile(join(data_file_path, f))]
+        data_files = [f for f in listdir(self._data_file_path) if isfile(join(self._data_file_path, f))]
         for f in data_files:
-            if self._activity_classes[self._CIRCLE][self._PATTERN].match(f):
-                data_class_as_one_hot = self._activity_classes[self._CIRCLE][self._CLASS_AS_ONE_HOT]
-            elif self._activity_classes[self._STATIONARY][self._PATTERN].match(f):
-                data_class_as_one_hot = self._activity_classes[self._STATIONARY][self._CLASS_AS_ONE_HOT]
-            elif self._activity_classes[self._UP_DOWN][self._PATTERN].match(f):
-                data_class_as_one_hot = self._activity_classes[self._UP_DOWN][self._CLASS_AS_ONE_HOT]
-            else:
-                data_class_as_one_hot = None
+            data_class_as_one_hot = None
+            for cl in self._activity_classes:
+                if cl[self._PATTERN].match(f):
+                    data_class_as_one_hot = cl[self._CLASS_AS_ONE_HOT]
+                    break
+
             if data_class_as_one_hot is not None:
                 print("Loading [{}]".format(f))
                 # Load csv as DataFrame and remove the first index column.
-                x = np.delete(pd.read_csv(join(data_file_path, f)).to_numpy(), 0, 1)
+                x = np.delete(pd.read_csv(join(self._data_file_path, f)).to_numpy(), 0, 1)
                 x, y = self.data_to_look_back_data_set(x, data_class_as_one_hot)
                 if x_all is None:
                     x_all = x
@@ -88,8 +131,29 @@ class ActivityModel:
                                                                                         random_state=42,
                                                                                         shuffle=True)
         else:
-            raise ValueError("No data to train from found in [{}]".format(data_file_path
-                                                                          ))
+            raise ValueError("No data to train from found in [{}]".format(self._data_file_path))
+        return
+
+    def experiment(self,
+                   experiment_file: str = '.\experiment.csv') -> None:
+        """
+        Load the experiment file and predict the sequence of activity it collected
+        """
+        print("Loading experiment[{}]".format(experiment_file))
+        # Load csv as DataFrame and remove the first index column.
+        x = np.delete(pd.read_csv(experiment_file).to_numpy(), 0, 1)
+        x, _ = self.data_to_look_back_data_set(x, np.zeros((1)))
+        shape = (1, x.shape[1], x.shape[2])
+        for i in range(x.shape[0]):
+            prediction = self._activity_lstm.predict(np.reshape(x[i], shape))
+            certainty = np.max(prediction) * 100
+            activity = np.round(prediction, 0)
+            activity_name = "Unknown"
+            for cl in self._activity_classes:
+                if np.all(cl[self._CLASS_AS_ONE_HOT] == activity[0]):
+                    activity_name = cl[self._ACTIVTY_NAME]
+                    break
+            print("Activity [{}] with certainty {:.0f}%".format(activity_name, certainty))
         return
 
     def data_to_look_back_data_set(self,
@@ -136,6 +200,10 @@ class ActivityModel:
 
 if __name__ == "__main__":
     am = ActivityModel()
-    # history = am._activity_lstm.fit(x_train, y_train, epochs=500, batch_size=32, verbose=2)
-    # plt.plot(history.history['loss'])
-    # plt.show()
+    am.load_data()
+    am.train()
+    am.test()
+    # am.experiment('.\\data\\up-down-1.csv')
+    # am.experiment('.\\data\\circle-1.csv')
+    # am.experiment('.\\data\\stationary-hand-1.csv')
+    am.experiment()
