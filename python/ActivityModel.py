@@ -4,8 +4,9 @@ import tensorflow as tf
 import pandas as pd
 import matplotlib.pyplot as plt
 import re
-from os import listdir
-from os.path import isfile, join
+import glob
+from os import listdir, remove
+from os.path import isfile, join, exists
 from sklearn.model_selection import train_test_split
 
 
@@ -17,6 +18,9 @@ class ActivityModel:
     _activity_lstm_trained: bool
     _training_steps: int
     _data_file_path: str
+    _checkpoint_filepath: str
+    _check_point_file_name_format: str
+    _check_point_file_pattern: re.Pattern
     _activity_classes: List[Tuple[re.Pattern, np.array, str]]
     _x_train: np.array
     _y_train: np.array
@@ -31,14 +35,18 @@ class ActivityModel:
     _ACTIVTY_NAME = 2
 
     def __init__(self,
-                 data_file_path: str = ".\data"):
+                 data_file_path: str = "./data",
+                 checkpoint_filepath='./checkpoint/'):
         self._n_features = 3
         self._n_classes = 3
         self._look_back_window_size = 20
         self._activity_lstm = self.create_model()
         self._activity_lstm_trained = False
         self._training_steps = 500
-        self._data_file_path = data_file_path  # check path exists and that there are files
+        self._data_file_path = self._valid_path(data_file_path)
+        self._checkpoint_filepath = self._valid_path(checkpoint_filepath)
+        self._check_point_file_name_format = 'cp-{epoch:04d}.ckpt'
+        self._check_point_file_pattern = re.compile('.*cp.*ckpt.*')
         self._activity_classes = [
             (re.compile('^circle.*\\.csv$'), np.array([1, 0, 0]), "Circle"),
             (re.compile('^stationary.*\\.csv$'), np.array([0, 1, 0]), "Stationary"),
@@ -48,16 +56,29 @@ class ActivityModel:
         self._x_test = None
         self._y_train = None
         self._y_test = None
-        self._clean()
         return
+
+    @staticmethod
+    def _valid_path(path_to_check: str) -> str:
+        """
+        Return the given file path if it exists else raise a Value error
+        :param path_to_check: The Path to validate as existing
+        :return: The given path if it exists
+        """
+        if not exists(path_to_check):
+            raise ValueError("Path [{}] does not exist, existing & valid path expected".format(path_to_check))
+        return path_to_check
 
     def _clean(self) -> None:
         """
         Clean up any persistent training state
         """
-        # checkpoint_files = glob.glob(join(self._checkpoint_file_path, "*"))
-        # for f in checkpoint_files:
-        #    remove(f)
+
+        # Delete any previous checkpoint files.
+        checkpoint_files = glob.glob(join(self._checkpoint_filepath, "*"))
+        for f in checkpoint_files:
+            if self._check_point_file_pattern.match(f):
+                remove(f)
         return
 
     def train(self) -> None:
@@ -66,18 +87,42 @@ class ActivityModel:
         """
         self._clean()
         if self._x_train is not None:
+            cpfp = join(self._checkpoint_filepath, 'cp-{epoch:04d}.ckpt')
+            model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+                filepath=cpfp,
+                save_weights_only=True,
+                monitor='val_loss',
+                mode='min',  # Smallest validation loss
+                save_best_only=True)
+
             history = self._activity_lstm.fit(self._x_train,
                                               self._y_train,
                                               epochs=self._training_steps,
                                               batch_size=32,
                                               verbose=2,  # Print training commentary
-                                              validation_data=(self._x_test, self._y_test))
+                                              validation_data=(self._x_test, self._y_test),
+                                              callbacks=[model_checkpoint_callback])
             self._activity_lstm_trained = True
             plt.plot(history.history['loss'])
             plt.plot(history.history['val_loss'])
             plt.show()
         else:
-            print("Load data before training model")
+            print("Create the model and Load training data before training model")
+        return
+
+    def load_from_checkpoint(self) -> None:
+        """
+        Load the model weights from a saved CheckPoint or train the model from scratch
+        """
+        if self._activity_lstm is not None and self._x_train is not None:
+            checkpoint_to_load = tf.train.latest_checkpoint(self._checkpoint_filepath)
+            print("Found [{}] to load weights from".format(checkpoint_to_load))
+            self._activity_lstm.load_weights(checkpoint_to_load)
+            loss = self._activity_lstm.evaluate(self._x_test, self._y_test, verbose=2)
+            print("Loss of loaded checkpoint [{}]".format(loss))
+            self._activity_lstm_trained = True
+        else:
+            print("creat the model and load the test data before loading a saved model weights")
         return
 
     def test(self) -> None:
@@ -135,7 +180,7 @@ class ActivityModel:
         return
 
     def experiment(self,
-                   experiment_file: str = '.\experiment.csv') -> None:
+                   experiment_file: str = './experiment-1.csv') -> None:
         """
         Load the experiment file and predict the sequence of activity it collected
         """
@@ -184,12 +229,13 @@ class ActivityModel:
             tf.keras.layers.LSTM(units=50,
                                  input_shape=(self._look_back_window_size, self._n_features),
                                  return_sequences=False, name="lstm-1"),
-            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dropout(0.3),
             tf.keras.layers.Dense(100, activation='relu', name="dense-1"),
-            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dropout(0.3),
             tf.keras.layers.Dense(25, activation='relu', name="dense-2"),
             tf.keras.layers.Dense(self._n_classes, activation='softmax', name='output')
         ])
+
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
             loss=tf.keras.losses.categorical_crossentropy
@@ -201,9 +247,10 @@ class ActivityModel:
 if __name__ == "__main__":
     am = ActivityModel()
     am.load_data()
-    am.train()
+    am.load_from_checkpoint()
+    # am.train()
     am.test()
-    # am.experiment('.\\data\\up-down-1.csv')
-    # am.experiment('.\\data\\circle-1.csv')
-    # am.experiment('.\\data\\stationary-hand-1.csv')
+    am.experiment('.\\data\\up-down-1.csv')
+    am.experiment('.\\data\\circle-1.csv')
+    am.experiment('.\\data\\stationary-hand-1.csv')
     am.experiment()

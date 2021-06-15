@@ -1,5 +1,4 @@
 import asyncio
-import pandas as pd
 from bleak import BleakScanner
 from bleak import BleakClient
 from BLEMessage import BLEMessage
@@ -33,12 +32,14 @@ class BLEActivityDataCollector:
     _notify_uuid_accel_xyz = "0000f001" + _ble_base_uuid.format(0xFFE1)
 
     def __init__(self,
-                 output_file: str):
+                 output_file: str,
+                 sample_period: int = 10):
         """
         Establish the BLEActivityCollector
         :param output_file: The file name to write the accelerometer data to.
         """
         self._output_file = output_file
+        self._sample_period = sample_period
         self._ble_device_address = None
         self._ble_stream = BLEStream(message_processor_callback=self.log_message)
         return
