@@ -122,12 +122,12 @@ class ActivityModel:
             print("Loss of loaded checkpoint [{}]".format(loss))
             self._activity_lstm_trained = True
         else:
-            print("creat the model and load the test data before loading a saved model weights")
+            print("creat the model and load the test data before loading saved model weights")
         return
 
     def test(self) -> None:
         """
-        Test the trained model on teh test data split out when the data was originally loaded.
+        Test the trained model on the test data split out when the data was originally loaded.
         """
         if self._activity_lstm_trained:
             # Used the trained model to predict classifications based on the test data
@@ -223,7 +223,7 @@ class ActivityModel:
 
     def create_model(self) -> tf.keras.Model:
         """
-        Create the LSTM model that will be used as the sequence classifier
+        Create the LSTM model that will be used as the accelerometer sequence classifier
         """
         model = tf.keras.Sequential([
             tf.keras.layers.LSTM(units=50,
@@ -242,15 +242,3 @@ class ActivityModel:
         )
         print(model.summary())
         return model
-
-
-if __name__ == "__main__":
-    am = ActivityModel()
-    am.load_data()
-    am.load_from_checkpoint()
-    # am.train()
-    am.test()
-    am.experiment('.\\data\\up-down-1.csv')
-    am.experiment('.\\data\\circle-1.csv')
-    am.experiment('.\\data\\stationary-hand-1.csv')
-    am.experiment()
