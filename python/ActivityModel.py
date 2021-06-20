@@ -1,4 +1,5 @@
 from typing import List, Tuple
+from copy import copy
 import numpy as np
 import tensorflow as tf
 import pandas as pd
@@ -26,6 +27,7 @@ class ActivityModel:
     _y_train: np.array
     _x_test: np.array
     _y_test: np.array
+    _test_on_load: bool
 
     _CIRCLE = 0
     _STATIONARY = 1
@@ -36,10 +38,12 @@ class ActivityModel:
 
     def __init__(self,
                  data_file_path: str = "./data",
-                 checkpoint_filepath='./checkpoint/'):
+                 checkpoint_filepath: str = './checkpoint/',
+                 test_on_load: bool = True):
         self._n_features = 3
         self._n_classes = 3
         self._look_back_window_size = 20
+        self._test_on_load = test_on_load
         self._activity_lstm = self.create_model()
         self._activity_lstm_trained = False
         self._training_steps = 500
@@ -68,6 +72,20 @@ class ActivityModel:
         if not exists(path_to_check):
             raise ValueError("Path [{}] does not exist, existing & valid path expected".format(path_to_check))
         return path_to_check
+
+    def look_back_window_size(self) -> int:
+        """
+        Get the size of the look back window used by the model.
+        :return: The look back window size as int.
+        """
+        return copy(self._look_back_window_size)
+
+    def input_shape(self) -> Tuple[int, int, int]:
+        """
+        The input dimensions required by the model to perform classification.
+        :return: Tuple of three integers describing the required input shape
+        """
+        return (1, self.look_back_window_size(), self._n_features)  # noqa
 
     def _clean(self) -> None:
         """
@@ -114,15 +132,16 @@ class ActivityModel:
         """
         Load the model weights from a saved CheckPoint or train the model from scratch
         """
-        if self._activity_lstm is not None and self._x_train is not None:
+        if self._activity_lstm is not None:
             checkpoint_to_load = tf.train.latest_checkpoint(self._checkpoint_filepath)
             print("Found [{}] to load weights from".format(checkpoint_to_load))
             self._activity_lstm.load_weights(checkpoint_to_load)
-            loss = self._activity_lstm.evaluate(self._x_test, self._y_test, verbose=2)
-            print("Loss of loaded checkpoint [{}]".format(loss))
+            if self._test_on_load and self._x_train is not None:
+                loss = self._activity_lstm.evaluate(self._x_test, self._y_test, verbose=2)
+                print("Loss of loaded checkpoint [{}]".format(loss))
             self._activity_lstm_trained = True
         else:
-            print("creat the model and load the test data before loading saved model weights")
+            print("creat the model before loading saved model weights")
         return
 
     def test(self) -> None:
@@ -179,6 +198,24 @@ class ActivityModel:
             raise ValueError("No data to train from found in [{}]".format(self._data_file_path))
         return
 
+    def predict(self,
+                sample_window: np.ndarray) -> Tuple[float, str]:
+        """
+        Make a model prediction based on the single sample given, where the sample
+        id a numpy array of features with shape (1, look back window size, num features)
+        :param sample_window: The numpy array containing the sample window
+        :return: The sample confidence as 0.0 to 1.0 and the string name of the predicted activity.
+        """
+        prediction = self._activity_lstm.predict(sample_window)
+        certainty = np.max(prediction) * 100
+        activity = np.round(prediction, 0)
+        activity_name = "Unknown"
+        for cl in self._activity_classes:
+            if np.all(cl[self._CLASS_AS_ONE_HOT] == activity[0]):
+                activity_name = cl[self._ACTIVTY_NAME]
+                break
+        return (certainty, activity_name)  # noqa
+
     def experiment(self,
                    experiment_file: str = './experiment-1.csv') -> None:
         """
@@ -190,14 +227,7 @@ class ActivityModel:
         x, _ = self.data_to_look_back_data_set(x, np.zeros((1)))
         shape = (1, x.shape[1], x.shape[2])
         for i in range(x.shape[0]):
-            prediction = self._activity_lstm.predict(np.reshape(x[i], shape))
-            certainty = np.max(prediction) * 100
-            activity = np.round(prediction, 0)
-            activity_name = "Unknown"
-            for cl in self._activity_classes:
-                if np.all(cl[self._CLASS_AS_ONE_HOT] == activity[0]):
-                    activity_name = cl[self._ACTIVTY_NAME]
-                    break
+            certainty, activity_name = self.predict(np.reshape(x[i], shape))
             print("Activity [{}] with certainty {:.0f}%".format(activity_name, certainty))
         return
 

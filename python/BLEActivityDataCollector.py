@@ -7,14 +7,14 @@ from BLEStream import BLEStream
 
 class BLEActivityDataCollector:
     """
-    Class to connect to the Arduino Nano BLE device and consume accelerometer updates.
+    Class to connect to the Arduino Nano BLE device and consume & record accelerometer updates.
     """
     _ble_device_name: str
     _ble_connect_timeout: int
     _sample_period: int
     _ble_base_uuid: str
     _notify_uuid_accel_xyz: str
-    _output_file: str
+    _verbose: bool
 
     # The name as of the Arduino BLE device as set in the sketch loaded on that device
     _ble_device_name = "ActivityPredictor"
@@ -28,29 +28,22 @@ class BLEActivityDataCollector:
     # All BLE UUID have a common base UUID
     _ble_base_uuid = "-0000-1000-8000-00805F9B34FB"
 
-    # This UUID is set in the Arduino Sketch - it is arbitrary and must just be teh same here and in the sketch
+    # This UUID is set in the Arduino Sketch - it is arbitrary and must just be the same here and in the sketch
     _notify_uuid_accel_xyz = "0000f001" + _ble_base_uuid.format(0xFFE1)
 
     def __init__(self,
-                 output_file: str,
-                 sample_period: int = 10):
+                 ble_stream: BLEStream,
+                 sample_period: int = 10,
+                 verbose: bool = True):
         """
         Establish the BLEActivityCollector
-        :param output_file: The file name to write the accelerometer data to.
+        :param ble_stream: The BLE Stream to send the updates to.
         """
-        self._output_file = output_file
+        self._verbose = verbose
         self._sample_period = sample_period
         self._ble_device_address = None
-        self._ble_stream = BLEStream(message_processor_callback=self.log_message)
-        return
-
-    @staticmethod
-    def log_message(msg: BLEMessage) -> None:
-        """
-        Log the notify message to console.
-        :param msg: the BLEMessage to log.
-        """
-        print(str(msg))
+        self._ble_stream = ble_stream
+        self._ble_stream.open()
         return
 
     def callback_accel_xyz(self, sender, data):
@@ -59,7 +52,10 @@ class BLEActivityDataCollector:
         :param sender: The details of the BLE Device sending the Notify
         :param data: The data attached to the notify message
         """
-        self._ble_stream.set_accelerometer_xyz(data)
+        ble_msg = BLEMessage(source=sender, value=data)
+        self._ble_stream.write_value(ble_msg)
+        if self._verbose:
+            print(str(ble_msg))
         return
 
     async def run(self):
@@ -80,10 +76,10 @@ class BLEActivityDataCollector:
                     await client.start_notify(BLEActivityDataCollector._notify_uuid_accel_xyz, self.callback_accel_xyz)
                     await asyncio.sleep(self._sample_period)
                     await client.stop_notify(BLEActivityDataCollector._notify_uuid_accel_xyz)
+                    print("Disconnect from {} at address {}".format(self._ble_device_name, self._ble_device_address))
+                    self._ble_stream.close()
+                    print("Done Ok")
                 except Exception as e:
                     print(e)
-            print("Write data to csv {}".format(self._output_file))
-            self._ble_stream.write_to_csv_file(self._output_file)
-            print("Disconnect from {} at address {}".format(self._ble_device_name, self._ble_device_address))
         else:
             print("No BLE device with name {} found".format(self._ble_device_name))

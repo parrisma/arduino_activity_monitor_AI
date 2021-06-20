@@ -4,7 +4,7 @@ from ActivityModel import ActivityModel
 from os.path import isfile, exists
 
 
-class MainActivityClassifier:
+class MainFileActivityClassifier:
     _experiment_file: str
     _data_file_path: str
     _checkpoint_file_path: str
@@ -87,4 +87,4 @@ class MainActivityClassifier:
 
 
 if __name__ == "__main__":
-    MainActivityClassifier().run(sys.argv[1:])
+    MainFileActivityClassifier().run(sys.argv[1:])

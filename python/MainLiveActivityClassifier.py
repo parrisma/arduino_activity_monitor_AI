@@ -2,20 +2,27 @@ import sys
 import getopt
 import asyncio
 from BLEActivityDataCollector import BLEActivityDataCollector
-from BLEFileStream import BLEFileStream
+from BLEClassifierStream import BLEClassifierStream
+from ActivityModel import ActivityModel
 
 
-class MainDataCollect:
-    _out_file: str
+class MainLiveActivityClassifier:
     _sample_time_in_seconds: int
+    _checkpoint_file_path: str
+    _activity_model: ActivityModel
     _script: str
     _help: str
+    _verbose: bool
 
     def __init__(self):
         self._out_file = None  # noqa
-        self._sample_time_in_seconds = 10
-        self._script = 'MainDataCollect.py'
-        self._help = '{} -o <output_file> -s <sample period in seconds'.format(self._script)
+        self._verbose = False
+        self._sample_time_in_seconds = 60
+        self._checkpoint_file_path = './checkpoint/'
+        self._activity_model = ActivityModel(checkpoint_filepath=self._checkpoint_file_path, test_on_load=False)
+        self._activity_model.load_from_checkpoint()
+        self._script = 'MainLiveClassifier.py'
+        self._help = '{} -v [flag verbose] -s <sample and classify period in seconds'.format(self._script)
         return
 
     def _get_args(self, argv) -> None:
@@ -24,27 +31,26 @@ class MainDataCollect:
         :param argv: Command line arguments.
         """
         try:
-            opts, args = getopt.getopt(argv, "hs:o:", ["out=", "sample="])
+            opts, args = getopt.getopt(argv, "hvs:", ["sample="])
         except getopt.GetoptError:
             self.exit_with_help()
         for opt, arg in opts:
             if opt == '-h':
                 self.exit_with_help(2)
-            elif opt in ("-o", "--out"):
-                self._out_file = arg
+            if opt == '-v':
+                self._verbose = True
             elif opt in ("-s", "--sample"):
                 self._sample_time_in_seconds = int(arg)
-        if self._out_file is None:
-            self.exit_with_help()
-        print("Output file is {} with a sample period of {} seconds".format(self._out_file,
-                                                                            self._sample_time_in_seconds))
+        print("Ready to classify activity for a sample period of {} seconds".format(self._sample_time_in_seconds))
         return
 
     def run(self, argv) -> None:
         self._get_args(argv)
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(BLEActivityDataCollector(ble_stream=BLEFileStream(self._out_file),
-                                                         sample_period=self._sample_time_in_seconds).run())
+        loop.run_until_complete(
+            BLEActivityDataCollector(ble_stream=BLEClassifierStream(activity_model=self._activity_model),
+                                     sample_period=self._sample_time_in_seconds,
+                                     verbose=self._verbose).run())
         loop.close()
         return
 
@@ -62,4 +68,4 @@ class MainDataCollect:
 
 
 if __name__ == "__main__":
-    MainDataCollect().run(sys.argv[1:])
+    MainLiveActivityClassifier().run(sys.argv[1:])
