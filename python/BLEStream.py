@@ -1,3 +1,5 @@
+import time
+import datetime
 from abc import ABC, abstractmethod
 from BLEMessage import BLEMessage
 
@@ -29,3 +31,10 @@ class BLEStream(ABC):
         :param ble_message: The xyz accelerometer update in from of a BLEMEssage
         """
         pass
+
+    @staticmethod
+    def ts() -> str:
+        """
+        :return: Current time as time stamp string
+        """
+        return datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')

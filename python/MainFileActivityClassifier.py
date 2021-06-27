@@ -65,7 +65,7 @@ class MainFileActivityClassifier:
                            checkpoint_filepath=self._checkpoint_file_path)
         am.load_data()
         if self._use_saved_weights:
-            am.load_from_checkpoint()
+            am.load_model_from_checkpoint()
         else:
             am.train()
         am.test()

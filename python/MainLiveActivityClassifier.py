@@ -20,7 +20,8 @@ class MainLiveActivityClassifier:
         self._sample_time_in_seconds = 60
         self._checkpoint_file_path = './checkpoint/'
         self._activity_model = ActivityModel(checkpoint_filepath=self._checkpoint_file_path, test_on_load=False)
-        self._activity_model.load_from_checkpoint()
+        self._activity_model.load_model_from_checkpoint()
+        self._activity_model.export_as_tf_lite()
         self._script = 'MainLiveClassifier.py'
         self._help = '{} -v [flag verbose] -s <sample and classify period in seconds'.format(self._script)
         return

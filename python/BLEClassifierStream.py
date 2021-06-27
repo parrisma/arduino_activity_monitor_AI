@@ -43,7 +43,7 @@ class BLEClassifierStream(BLEStream):
         Covert the current data to numpy form needed to pass to model for classification.
         :return: numpy array of dimension [1, len data, 3]
         """
-        asnp = np.zeros(self._activity_model.input_shape())
+        asnp = np.zeros(self._activity_model.classification_input_shape())
         for i in range(0, len(self._data)):
             asnp[0, i] = np.asarray(self._data[i].get())
             i += 1
@@ -59,8 +59,11 @@ class BLEClassifierStream(BLEStream):
         self._data.append(ble_message)
         if len(self._data) >= self._classifier_window_len:
             certainty, activity_name = self._activity_model.predict(self._as_numpy())
-            print("Activity [{}] with certainty {:.0f}%".format(activity_name, certainty))
+            print("{}: Activity [{}] with certainty {:.0f}%".format(self.ts(),
+                                                                    activity_name,
+                                                                    certainty))
         else:
-            print("Waiting for sufficient data {} of required {} seen ".format(len(self._data),
-                                                                               self._classifier_window_len))
+            print("{}: Waiting for sufficient data {} of required {} seen ".format(self.ts(),
+                                                                                   len(self._data),
+                                                                                   self._classifier_window_len))
         return

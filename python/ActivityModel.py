@@ -1,25 +1,44 @@
+from enum import IntEnum, unique, auto
 from typing import List, Tuple
 from copy import copy
 import numpy as np
 import tensorflow as tf
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
+from matplotlib import rcParams
 import re
 import glob
 from os import listdir, remove
 from os.path import isfile, join, exists
 from sklearn.model_selection import train_test_split
+from hex_to_c import hex_to_c_array
 
 
 class ActivityModel:
+    """
+    Class to manage the prediction of activity types based on Arduino Nano accelerometer readings. Where the activity
+    prediction is performed by one of a selection of models.
+
+    """
+
+    @unique
+    class ModelType(IntEnum):
+        LSTM = auto()
+        CNN = auto()
+        SIMPLE = auto()
+
     _n_features: int
     _n_classes: int
     _look_back_window_size: int
-    _activity_lstm: tf.keras.Model
-    _activity_lstm_trained: bool
+    _activity_model: tf.keras.Model
+    _activity_model_type: ModelType
+    _activity_model_input_shape: Tuple
+    _activity_model_trained: bool
     _training_steps: int
     _data_file_path: str
     _checkpoint_filepath: str
+    _export_filepath: str
     _check_point_file_name_format: str
     _check_point_file_pattern: re.Pattern
     _activity_classes: List[Tuple[re.Pattern, np.array, str]]
@@ -34,21 +53,24 @@ class ActivityModel:
     _UP_DOWN = 2
     _PATTERN = 0
     _CLASS_AS_ONE_HOT = 1
-    _ACTIVTY_NAME = 2
+    _ACTIVITY_NAME = 2
 
     def __init__(self,
                  data_file_path: str = "./data",
                  checkpoint_filepath: str = './checkpoint/',
+                 export_filepath: str = './model-export',
                  test_on_load: bool = True):
-        self._n_features = 3
-        self._n_classes = 3
+        rcParams.update({'figure.autolayout': True})
+        physical_devices = tf.config.list_physical_devices('GPU')
+        tf.config.experimental.set_memory_growth(physical_devices[0], True)
+        self._n_features = 3  # x,y,z Accelerometer readings
         self._look_back_window_size = 20
         self._test_on_load = test_on_load
-        self._activity_lstm = self.create_model()
-        self._activity_lstm_trained = False
-        self._training_steps = 500
+        self._activity_model_trained = False
+        self._training_steps = 50
         self._data_file_path = self._valid_path(data_file_path)
         self._checkpoint_filepath = self._valid_path(checkpoint_filepath)
+        self._export_filepath = self._valid_path(export_filepath)
         self._check_point_file_name_format = 'cp-{epoch:04d}.ckpt'
         self._check_point_file_pattern = re.compile('.*cp.*ckpt.*')
         self._activity_classes = [
@@ -56,6 +78,9 @@ class ActivityModel:
             (re.compile('^stationary.*\\.csv$'), np.array([0, 1, 0]), "Stationary"),
             (re.compile('^up-down.*\\.csv$'), np.array([0, 0, 1]), "Up Down")
         ]
+        self._n_classes = len(self._activity_classes)  # Circle, Up-Down & Stationary
+        self._activity_model_type = self.ModelType.CNN
+        self._activity_model, self._activity_model_input_shape = self.create_model(self._activity_model_type)
         self._x_train = None
         self._x_test = None
         self._y_train = None
@@ -75,24 +100,34 @@ class ActivityModel:
 
     def look_back_window_size(self) -> int:
         """
-        Get the size of the look back window used by the model.
+        Get the size of the look back window to be used by the model.
+
+        This tells us how many sequential samples to consider when making up a training event.
+
         :return: The look back window size as int.
         """
         return copy(self._look_back_window_size)
 
-    def input_shape(self) -> Tuple[int, int, int]:
+    def classification_input_shape(self) -> Tuple:
         """
-        The input dimensions required by the model to perform classification.
-        :return: Tuple of three integers describing the required input shape
+        The input dimensions required by the model to perform *single sample* classification.
+
+        Because we pass a batch of inputs into the model for training we need to add the additional dimension.
+        If the model shape is (20, 3, 3) and we pass in a batch Keras expects (None, 20, 3, 3) where None
+        is a place holder for a batch of unknown (at the point of model compilation) inputs. So we take the
+        input shape as defined by the model and we add the additional leading dimension of 1. Where it is 1 because
+        we are passing in a single item for classification rather than a list.
+
+        :return: Tuple of integers describing the required input shape
         """
-        return (1, self.look_back_window_size(), self._n_features)  # noqa
+        return tuple((1, *self._activity_model_input_shape))
 
     def _clean(self) -> None:
         """
         Clean up any persistent training state
         """
 
-        # Delete any previous checkpoint files.
+        # Delete any previous checkpoint files so as not to mix up results from different training runs.
         checkpoint_files = glob.glob(join(self._checkpoint_filepath, "*"))
         for f in checkpoint_files:
             if self._check_point_file_pattern.match(f):
@@ -101,11 +136,11 @@ class ActivityModel:
 
     def train(self) -> None:
         """
-        Train the model on the loaed test data
+        Train the model on the loaded test data.
         """
         self._clean()
         if self._x_train is not None:
-            cpfp = join(self._checkpoint_filepath, 'cp-{epoch:04d}.ckpt')
+            cpfp = join(self._checkpoint_filepath, self._check_point_file_name_format)
             model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
                 filepath=cpfp,
                 save_weights_only=True,
@@ -113,56 +148,108 @@ class ActivityModel:
                 mode='min',  # Smallest validation loss
                 save_best_only=True)
 
-            history = self._activity_lstm.fit(self._x_train,
-                                              self._y_train,
-                                              epochs=self._training_steps,
-                                              batch_size=32,
-                                              verbose=2,  # Print training commentary
-                                              validation_data=(self._x_test, self._y_test),
-                                              callbacks=[model_checkpoint_callback])
-            self._activity_lstm_trained = True
-            plt.plot(history.history['loss'])
-            plt.plot(history.history['val_loss'])
-            plt.show()
+            history = self._activity_model.fit(self._x_train,
+                                               self._y_train,
+                                               epochs=self._training_steps,
+                                               batch_size=32,
+                                               verbose=2,  # Print training commentary
+                                               validation_data=(self._x_test, self._y_test),
+                                               callbacks=[model_checkpoint_callback])
+            self._activity_model_trained = True
+            self._plot_training_results(history)
         else:
-            print("Create the model and Load training data before training model")
+            raise RuntimeError("Create the model and Load training data before training model")
         return
 
-    def load_from_checkpoint(self) -> None:
+    @staticmethod
+    def _plot_training_results(history: tf.keras.callbacks.History) -> None:
+        """
+        Plot the training and validation losses. This is done on a dual axis where the last 80% of the points
+        are re-plotted so that there is the effect of a zoom as they will be on a new scale beyond (hopefully)
+        the point at which the main training gains have been made.
+        :param history: The history from the Keras training.
+        """
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        fig.suptitle('Training Loss & validation loss')
+        fig.tight_layout()
+
+        loss = history.history['loss']
+        val_loss = history.history['val_loss']
+
+        idx = range(len(loss))
+        idx_zoom = int(len(loss) * .2)
+        line1 = ax.plot(idx, loss, label='Loss', c=colors.cnames['darkblue'])
+        line2 = ax.plot(idx, val_loss, label='Validation Loss', c=colors.cnames['darkorange'])
+        ax2 = ax.twinx()
+        line3 = ax2.plot(idx[idx_zoom:], loss[idx_zoom:], label='Loss (zoom)', c=colors.cnames['blue'])
+        line4 = ax2.plot(idx[idx_zoom:], val_loss[idx_zoom:], label='Validation Loss (zoom)', c=colors.cnames['orange'])
+
+        # added these three lines
+        lines = line1 + line2 + line3 + line4
+        labs = [line.get_label() for line in lines]
+        ax.legend(lines, labs, loc=0)
+
+        ax.grid()
+        ax.set_xlabel('Epoch Number')
+        ax.set_ylabel('Training')
+        ax2.set_ylabel('Zoomed Training')
+
+        plt.show()
+        return
+
+    def load_model_from_checkpoint(self) -> None:
         """
         Load the model weights from a saved CheckPoint or train the model from scratch
         """
-        if self._activity_lstm is not None:
+        if self._activity_model is not None:
             checkpoint_to_load = tf.train.latest_checkpoint(self._checkpoint_filepath)
             print("Found [{}] to load weights from".format(checkpoint_to_load))
-            self._activity_lstm.load_weights(checkpoint_to_load)
-            if self._test_on_load and self._x_train is not None:
-                loss = self._activity_lstm.evaluate(self._x_test, self._y_test, verbose=2)
+            self._activity_model.load_weights(checkpoint_to_load)
+            if self._test_on_load and self._x_test is not None:
+                loss = self._activity_model.evaluate(self._x_test, self._y_test, verbose=2)
                 print("Loss of loaded checkpoint [{}]".format(loss))
-            self._activity_lstm_trained = True
+            self._activity_model_trained = True
         else:
-            print("creat the model before loading saved model weights")
+            raise RuntimeError("creat the model before loading saved model weights")
         return
 
     def test(self) -> None:
         """
         Test the trained model on the test data split out when the data was originally loaded.
         """
-        if self._activity_lstm_trained:
+        if self._activity_model_trained:
             # Used the trained model to predict classifications based on the test data
-            predictions = self._activity_lstm.predict(self._x_test)
+            predictions = self._activity_model.predict(self._x_test)
             # Count how many of the predictions are equal to the expected classifications
             num_correct = np.sum(np.all((np.round(predictions, 0) == self._y_test), axis=1) * 1)
 
             print("Test accuracy {}%".format(100 * (num_correct / np.shape(self._x_test)[0])))
         else:
-            print("Train the model before running test")
+            raise RuntimeError("Train the model or load weights from checkpoint before running test")
         return
+
+    def _reshaspe(self,
+                  x_all: np.ndarray) -> np.ndarray:
+        """
+        Take a full data set and (optionally) reshape it as needed for the model that is the target for the
+        training.
+        :param x_all: A fully loaded set of x values.
+
+        :return: Reshaped set of x values in shape required by currently loaded model.
+        """
+        if self._activity_model_input_shape != x_all.shape[1:]:
+            x_all = x_all.reshape(tuple((x_all.shape[0], *self._activity_model_input_shape)))
+        return x_all
 
     def load_data(self) -> None:
         """
         Load all of the data files that are of known activity class and create x_train,y_train,x_test,y_test split
-        in the given ratio.
+        in the given ratio. By default the data is split into frames that are the size of the defined look back
+        window.
+
+        Then once the data is loaded it is reshaped (if needed) to match the specific input shape of the target
+        model.
         """
         x_all = None
         y_all = None
@@ -186,7 +273,10 @@ class ActivityModel:
                     x_all = np.concatenate((x_all, x))
                     y_all = np.concatenate((y_all, y))
             else:
-                print("Skipping data file [{}] as it has un known type".format(f))
+                print("Warning, Skipping data file [{}] as it has un known type".format(f))
+
+        # Ensure the X data is in the correct shape as required by the current target model.
+        x_all = self._reshaspe(x_all=x_all)
 
         if len(x_all) > 0:
             self._x_train, self._x_test, self._y_train, self._y_test = train_test_split(x_all,
@@ -206,13 +296,13 @@ class ActivityModel:
         :param sample_window: The numpy array containing the sample window
         :return: The sample confidence as 0.0 to 1.0 and the string name of the predicted activity.
         """
-        prediction = self._activity_lstm.predict(sample_window)
+        prediction = self._activity_model.predict(sample_window)
         certainty = np.max(prediction) * 100
         activity = np.round(prediction, 0)
         activity_name = "Unknown"
         for cl in self._activity_classes:
             if np.all(cl[self._CLASS_AS_ONE_HOT] == activity[0]):
-                activity_name = cl[self._ACTIVTY_NAME]
+                activity_name = cl[self._ACTIVITY_NAME]
                 break
         return (certainty, activity_name)  # noqa
 
@@ -237,8 +327,7 @@ class ActivityModel:
         """
         Take x and y data and convert into look_back format data suitable for LSTM training.
         :param x_data: the X data set
-        :param x_data_one_hot: the one hot encoding of teh data type of X (Circle etc)
-        :param look_back_window_size:
+        :param x_data_one_hot: the one hot encoding of the data type of X (Circle etc)
         :return: X,Y data as look back frames.
         """
         num_frames = len(x_data) - (self._look_back_window_size - 1)
@@ -249,26 +338,140 @@ class ActivityModel:
             x_look_back_data_set[i] = (x_data[i:i + self._look_back_window_size])
             y_look_back_data_set[i] = x_data_one_hot
             i += 1
-        return (x_look_back_data_set, y_look_back_data_set)
+        return tuple((x_look_back_data_set, y_look_back_data_set))
 
-    def create_model(self) -> tf.keras.Model:
+    def create_model(self,
+                     model_type: 'ModelType') -> Tuple[tf.keras.Model, Tuple]:
+        """
+        Create a model of the given type
+        """
+        if model_type == self.ModelType.LSTM:
+            model, shape = self.create_lstm_model()
+        elif model_type == self.ModelType.SIMPLE:
+            model, shape = self.create_simple_model()
+        else:
+            model, shape = self.create_cnn_model()
+        return tuple((model, shape))
+
+    def create_cnn_model(self) -> Tuple[tf.keras.Model, Tuple]:
+        """
+        Create the CNN model that will be used as the accelerometer sequence classifier.
+
+        This is a 1D Convolution, but modelled as a 2D Conv as the target TF Lite environment does
+        not (yet) support 1D Convolution
+        """
+        shape = tuple((self._look_back_window_size, self._n_features, 1))
+        model = tf.keras.Sequential([
+            tf.keras.layers.Conv2D(filters=8, kernel_size=3, activation='relu',
+                                   input_shape=shape, name='Conv1D-1'),
+            tf.keras.layers.Conv2DTranspose(filters=4, kernel_size=3, activation='relu', name='Conv1D-2'),
+            tf.keras.layers.Dropout(0.5, name="Dropout-Regularise1"),
+            tf.keras.layers.MaxPooling2D(pool_size=(2, 1), name='MaxPool1'),
+            tf.keras.layers.Flatten(),
+            tf.keras.layers.Dense(50, activation='relu', name='Dense1'),
+            tf.keras.layers.Dense(self._n_classes, activation='softmax', name='Output')
+        ], name="cnn-activity-model")
+
+        #
+        # Compile model using Adam optimiser and Categorical Cross Entropy as this is a classification model.
+        #
+        decayed_lr = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=1e-3,
+                                                                    decay_steps=10000,
+                                                                    decay_rate=0.95,
+                                                                    staircase=True)
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=decayed_lr),
+            loss=tf.keras.losses.categorical_crossentropy
+        )
+        print(model.summary())
+        return tuple((model, shape))
+
+    def create_lstm_model(self) -> Tuple[tf.keras.Model, Tuple]:
         """
         Create the LSTM model that will be used as the accelerometer sequence classifier
         """
+        shape = tuple((self._look_back_window_size, self._n_features))
         model = tf.keras.Sequential([
-            tf.keras.layers.LSTM(units=50,
-                                 input_shape=(self._look_back_window_size, self._n_features),
+            tf.keras.layers.LSTM(units=10,
+                                 input_shape=shape,
                                  return_sequences=False, name="lstm-1"),
-            tf.keras.layers.Dropout(0.3),
-            tf.keras.layers.Dense(100, activation='relu', name="dense-1"),
-            tf.keras.layers.Dropout(0.3),
-            tf.keras.layers.Dense(25, activation='relu', name="dense-2"),
+            tf.keras.layers.Dropout(0.2, name="Dropout-Regularise1"),
+            tf.keras.layers.Dense(50, activation='relu', name="dense-1"),
+            tf.keras.layers.Dropout(0.2, name="Dropout-Regularise2"),
+            tf.keras.layers.Dense(10, activation='relu', name="dense-2"),
             tf.keras.layers.Dense(self._n_classes, activation='softmax', name='output')
-        ])
+        ], name="lstm-activity-model")
 
+        #
+        # Compile model using Adam optimiser and Categorical Cross Entropy as this is a classification model.
+        #
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
             loss=tf.keras.losses.categorical_crossentropy
         )
         print(model.summary())
-        return model
+        return tuple((model, shape))
+
+    def create_simple_model(self) -> Tuple[tf.keras.Model, Tuple]:
+        """
+        Treat the sequence as a flat vector of length look_back * num_features
+        :return: A Dense model.
+        """
+        shape = self._look_back_window_size * self._n_features
+        model = tf.keras.Sequential([
+            tf.keras.layers.Dense(units=shape,
+                                  input_dim=1,
+                                  activation='relu',
+                                  name="input"),
+            tf.keras.layers.Dense(units=round(self._look_back_window_size / self._n_features, 0),
+                                  activation='relu',
+                                  name="dense-1"),
+            tf.keras.layers.Dropout(0.3, name="Dropout-Regularise1"),
+            tf.keras.layers.Dense(units=self._n_features * 2,
+                                  activation='relu',
+                                  name="dense-2"),
+            tf.keras.layers.Dense(self._n_classes, activation='softmax', name='output')
+        ], name="simple-model")
+
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+            loss=tf.keras.losses.categorical_crossentropy
+        )
+
+        print(model.summary())
+        return tuple((model, tuple(shape)))
+
+    def export_as_tf_lite(self) -> None:
+        """
+        Convert the loaded & trained model to a tensorflow lite form and also create the c file
+        equivalent that can be uploaded to the Arduino Nano 33 SENSE to be run using the Arduino
+        tf lite sketch libraries.
+
+        The binary form is written as <model_name>.tfl
+        The c form is written as <model_name>.h
+
+        Both of these are written to the export file path defined in this class.
+        """
+        if self._activity_model is not None and self._activity_model_trained:
+            conv = tf.lite.TFLiteConverter.from_keras_model(self._activity_model)
+            conv.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_SIZE]  # needs to be small as target is Arduino
+            tf_lite_model = conv.convert()
+
+            tf_lite_model_filename = join(self._export_filepath, "{}.{}".format(self._activity_model.name, 'tfl'))
+            if exists(tf_lite_model_filename):
+                remove(tf_lite_model_filename)
+            f = open(tf_lite_model_filename, 'wb')
+            f.write(tf_lite_model)
+            f.flush()
+            f.close()
+
+            tf_lite_model_c_filename = join(self._export_filepath, "{}.{}".format(self._activity_model.name, 'h'))
+            if exists(tf_lite_model_c_filename):
+                remove(tf_lite_model_c_filename)
+            f = open(tf_lite_model_c_filename, 'w')
+            f.write(hex_to_c_array(tf_lite_model, 'LSTM_ACT_MODEL'))
+            f.flush()
+            f.close()
+        else:
+            raise ValueError("The model must be both created and trained before it can be exported as TF-Lite")
+        return
