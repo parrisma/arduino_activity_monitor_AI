@@ -1,49 +1,48 @@
 import sys
-import getopt
 import asyncio
 from BLEActivityDataCollector import BLEActivityDataCollector
 from BLEClassifierStream import BLEClassifierStream
 from ActivityModel import ActivityModel
+from BaseArgParser import BaseArgParser
 
 
 class MainLiveActivityClassifier:
     _sample_time_in_seconds: int
-    _checkpoint_file_path: str
     _activity_model: ActivityModel
     _script: str
     _help: str
     _verbose: bool
 
     def __init__(self):
-        self._out_file = None  # noqa
-        self._verbose = False
-        self._sample_time_in_seconds = 60
-        self._checkpoint_file_path = './checkpoint/'
-        self._activity_model = ActivityModel(checkpoint_filepath=self._checkpoint_file_path, test_on_load=False)
+        args = self._get_args(description="Classify a live stream of accelerometer readings from the Arduino")
+        self._verbose = args.verbose
+        self._sample_time_in_seconds = args.sample_time
+        self._model_type = ActivityModel.ModelType.str2modeltype(args.model)
+
+        self._activity_model = ActivityModel(data_file_path=args.data,
+                                             checkpoint_filepath=args.checkpoint,
+                                             export_filepath='',
+                                             model_type=self._model_type)
         self._activity_model.load_model_from_checkpoint()
-        self._activity_model.export_as_tf_lite()
-        self._script = 'MainLiveClassifier.py'
-        self._help = '{} -v [flag verbose] -s <sample and classify period in seconds'.format(self._script)
         return
 
-    def _get_args(self, argv) -> None:
+    def _get_args(self,
+                  description: str):
         """
-        Extract command line arguments to member variable or exit with error.
-        :param argv: Command line arguments.
+        Extract and verify command line arguments
+        :param description: The description of the application
         """
-        try:
-            opts, args = getopt.getopt(argv, "hvs:", ["sample="])
-        except getopt.GetoptError:
-            self.exit_with_help()
-        for opt, arg in opts:
-            if opt == '-h':
-                self.exit_with_help(2)
-            if opt == '-v':
-                self._verbose = True
-            elif opt in ("-s", "--sample"):
-                self._sample_time_in_seconds = int(arg)
-        print("Ready to classify activity for a sample period of {} seconds".format(self._sample_time_in_seconds))
-        return
+        parser = BaseArgParser(description).parser()
+        parser.add_argument("-s", "--sample_time",
+                            help="The number of seconds to sample and classify for",
+                            default=60,
+                            type=int)
+        parser.add_argument("-m", "--model",
+                            help="The type of neural network model to create",
+                            choices=ActivityModel.ModelType.model_options(),  # noqa
+                            default=ActivityModel.ModelType.default_model_type(),
+                            type=ActivityModel.ModelType.valid_model_type)
+        return parser.parse_args()
 
     def run(self, argv) -> None:
         self._get_args(argv)

@@ -37,7 +37,7 @@
 #include "tensorflow/lite/micro/all_ops_resolver.h"
 #include "constants.h"
 #include "model.h"
-#include "lstm_activity_model.h"
+#include "activity_model.h"
 #include "output_handler.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
@@ -62,7 +62,7 @@ TfLiteTensor* input = nullptr;
 TfLiteTensor* output = nullptr;
 int inference_count = 0;
 
-constexpr int kTensorArenaSize = 20000;
+constexpr int kTensorArenaSize = 5000;
 uint8_t tensor_arena[kTensorArenaSize];
 }  // namespace
 
@@ -93,7 +93,7 @@ void setup() {
   
   // Map the model into a usable data structure. This doesn't involve any
   // copying or parsing, it's a very lightweight operation.
-  model = tflite::GetModel(lstm_act_model);
+  model = tflite::GetModel(activity_model);
   if (model->version() != TFLITE_SCHEMA_VERSION) {
     TF_LITE_REPORT_ERROR(error_reporter,
                          "Model provided is schema version %d not equal "
@@ -104,7 +104,7 @@ void setup() {
   Serial.println("Step 2");
   rgb_led(BLUE);  
 
-  TF_LITE_REPORT_ERROR(error_reporter, "My Model loaded.");Serial.flush();
+  TF_LITE_REPORT_ERROR(error_reporter, "Activity Model loaded.");Serial.flush();
 
   // This pulls in all the operation implementations we need.
   // NOLINTNEXTLINE(runtime-global-variables)

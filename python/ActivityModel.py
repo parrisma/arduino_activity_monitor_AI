@@ -12,7 +12,7 @@ import glob
 from os import listdir, remove
 from os.path import isfile, join, exists
 from sklearn.model_selection import train_test_split
-from hex_to_c import hex_to_c_array
+from TFLiteGenerator import TFLiteGenerator
 
 
 class ActivityModel:
@@ -28,6 +28,31 @@ class ActivityModel:
         CNN = auto()
         SIMPLE = auto()
 
+        @staticmethod
+        def model_options() -> List[str]:
+            return ['lstm', 'cnn', 'simple']
+
+        @staticmethod
+        def default_model_type() -> str:
+            return ActivityModel.ModelType.model_options()[1]  # CNN is default
+
+        @staticmethod
+        def valid_model_type(arg: str) -> str:
+            if arg.lower() not in ActivityModel.ModelType.model_options():
+                raise ValueError("[{}] is not a valid model type".format(arg))
+            return arg
+
+        @staticmethod
+        def str2modeltype(arg: str) -> 'ActivityModel.ModelType':
+            if arg.lower() == ActivityModel.ModelType.model_options()[0]:
+                return ActivityModel.ModelType.LSTM
+            elif arg.lower() == ActivityModel.ModelType.model_options()[1]:
+                return ActivityModel.ModelType.CNN
+            elif arg.lower() == ActivityModel.ModelType.model_options()[2]:
+                return ActivityModel.ModelType.SIMPLE
+            else:
+                raise ValueError("[{}] is not a valid model type".format(arg))
+
     _n_features: int
     _n_classes: int
     _look_back_window_size: int
@@ -39,6 +64,7 @@ class ActivityModel:
     _data_file_path: str
     _checkpoint_filepath: str
     _export_filepath: str
+    _generate_tflite: bool
     _check_point_file_name_format: str
     _check_point_file_pattern: re.Pattern
     _activity_classes: List[Tuple[re.Pattern, np.array, str]]
@@ -56,9 +82,11 @@ class ActivityModel:
     _ACTIVITY_NAME = 2
 
     def __init__(self,
-                 data_file_path: str = "./data",
-                 checkpoint_filepath: str = './checkpoint/',
-                 export_filepath: str = './model-export',
+                 data_file_path: str,
+                 checkpoint_filepath: str,
+                 export_filepath: str,
+                 model_type: ModelType = ModelType.CNN,
+                 generate_tflite: bool = False,
                  test_on_load: bool = True):
         rcParams.update({'figure.autolayout': True})
         physical_devices = tf.config.list_physical_devices('GPU')
@@ -67,10 +95,11 @@ class ActivityModel:
         self._look_back_window_size = 20
         self._test_on_load = test_on_load
         self._activity_model_trained = False
-        self._training_steps = 50
-        self._data_file_path = self._valid_path(data_file_path)
-        self._checkpoint_filepath = self._valid_path(checkpoint_filepath)
-        self._export_filepath = self._valid_path(export_filepath)
+        self._training_steps = 250
+        self._data_file_path = data_file_path
+        self._checkpoint_filepath = checkpoint_filepath
+        self._export_filepath = export_filepath
+        self._generate_tflite = generate_tflite
         self._check_point_file_name_format = 'cp-{epoch:04d}.ckpt'
         self._check_point_file_pattern = re.compile('.*cp.*ckpt.*')
         self._activity_classes = [
@@ -79,24 +108,13 @@ class ActivityModel:
             (re.compile('^up-down.*\\.csv$'), np.array([0, 0, 1]), "Up Down")
         ]
         self._n_classes = len(self._activity_classes)  # Circle, Up-Down & Stationary
-        self._activity_model_type = self.ModelType.CNN
+        self._activity_model_type = model_type
         self._activity_model, self._activity_model_input_shape = self.create_model(self._activity_model_type)
         self._x_train = None
         self._x_test = None
         self._y_train = None
         self._y_test = None
         return
-
-    @staticmethod
-    def _valid_path(path_to_check: str) -> str:
-        """
-        Return the given file path if it exists else raise a Value error
-        :param path_to_check: The Path to validate as existing
-        :return: The given path if it exists
-        """
-        if not exists(path_to_check):
-            raise ValueError("Path [{}] does not exist, existing & valid path expected".format(path_to_check))
-        return path_to_check
 
     def look_back_window_size(self) -> int:
         """
@@ -132,6 +150,13 @@ class ActivityModel:
         for f in checkpoint_files:
             if self._check_point_file_pattern.match(f):
                 remove(f)
+
+        # If generate TF Lite is enabled then delete any old generated files.
+        if self._generate_tflite:
+            checkpoint_files = glob.glob(join(self._export_filepath, "*"))
+            for f in checkpoint_files:
+                if self._check_point_file_pattern.match(f):
+                    remove(f)
         return
 
     def train(self) -> None:
@@ -157,6 +182,8 @@ class ActivityModel:
                                                callbacks=[model_checkpoint_callback])
             self._activity_model_trained = True
             self._plot_training_results(history)
+            if self._generate_tflite:
+                self.export_as_tf_lite()
         else:
             raise RuntimeError("Create the model and Load training data before training model")
         return
@@ -242,7 +269,7 @@ class ActivityModel:
             x_all = x_all.reshape(tuple((x_all.shape[0], *self._activity_model_input_shape)))
         return x_all
 
-    def load_data(self) -> None:
+    def load_training_data(self) -> None:
         """
         Load all of the data files that are of known activity class and create x_train,y_train,x_test,y_test split
         in the given ratio. By default the data is split into frames that are the size of the defined look back
@@ -306,8 +333,8 @@ class ActivityModel:
                 break
         return (certainty, activity_name)  # noqa
 
-    def experiment(self,
-                   experiment_file: str = './experiment-1.csv') -> None:
+    def run_experiment(self,
+                       experiment_file: str = './experiment-1.csv') -> None:
         """
         Load the experiment file and predict the sequence of activity it collected
         """
@@ -346,14 +373,14 @@ class ActivityModel:
         Create a model of the given type
         """
         if model_type == self.ModelType.LSTM:
-            model, shape = self.create_lstm_model()
+            model, shape = self.create_lstm_network()
         elif model_type == self.ModelType.SIMPLE:
-            model, shape = self.create_simple_model()
+            model, shape = self.create_simple_network()
         else:
-            model, shape = self.create_cnn_model()
+            model, shape = self.create_cnn_network()
         return tuple((model, shape))
 
-    def create_cnn_model(self) -> Tuple[tf.keras.Model, Tuple]:
+    def create_cnn_network(self) -> Tuple[tf.keras.Model, Tuple]:
         """
         Create the CNN model that will be used as the accelerometer sequence classifier.
 
@@ -362,13 +389,15 @@ class ActivityModel:
         """
         shape = tuple((self._look_back_window_size, self._n_features, 1))
         model = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(filters=8, kernel_size=3, activation='relu',
-                                   input_shape=shape, name='Conv1D-1'),
-            tf.keras.layers.Conv2DTranspose(filters=4, kernel_size=3, activation='relu', name='Conv1D-2'),
+            tf.keras.layers.Conv2D(filters=8, kernel_size=(3, 1), activation='relu',
+                                   input_shape=shape, name='Conv2D-1'),
+            tf.keras.layers.Conv2D(filters=4, kernel_size=(3, 1), activation='relu', name='Conv2D-2'),
             tf.keras.layers.Dropout(0.5, name="Dropout-Regularise1"),
             tf.keras.layers.MaxPooling2D(pool_size=(2, 1), name='MaxPool1'),
+            tf.keras.layers.Dropout(0.4, name="Dropout-Regularise2"),
             tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(50, activation='relu', name='Dense1'),
+            tf.keras.layers.Dense(25, activation='relu', name='Dense1'),
+            tf.keras.layers.Dropout(0.3, name="Dropout-Regularise3"),
             tf.keras.layers.Dense(self._n_classes, activation='softmax', name='Output')
         ], name="cnn-activity-model")
 
@@ -386,7 +415,7 @@ class ActivityModel:
         print(model.summary())
         return tuple((model, shape))
 
-    def create_lstm_model(self) -> Tuple[tf.keras.Model, Tuple]:
+    def create_lstm_network(self) -> Tuple[tf.keras.Model, Tuple]:
         """
         Create the LSTM model that will be used as the accelerometer sequence classifier
         """
@@ -412,7 +441,7 @@ class ActivityModel:
         print(model.summary())
         return tuple((model, shape))
 
-    def create_simple_model(self) -> Tuple[tf.keras.Model, Tuple]:
+    def create_simple_network(self) -> Tuple[tf.keras.Model, Tuple]:
         """
         Treat the sequence as a flat vector of length look_back * num_features
         :return: A Dense model.
@@ -453,25 +482,8 @@ class ActivityModel:
         Both of these are written to the export file path defined in this class.
         """
         if self._activity_model is not None and self._activity_model_trained:
-            conv = tf.lite.TFLiteConverter.from_keras_model(self._activity_model)
-            conv.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_SIZE]  # needs to be small as target is Arduino
-            tf_lite_model = conv.convert()
-
-            tf_lite_model_filename = join(self._export_filepath, "{}.{}".format(self._activity_model.name, 'tfl'))
-            if exists(tf_lite_model_filename):
-                remove(tf_lite_model_filename)
-            f = open(tf_lite_model_filename, 'wb')
-            f.write(tf_lite_model)
-            f.flush()
-            f.close()
-
-            tf_lite_model_c_filename = join(self._export_filepath, "{}.{}".format(self._activity_model.name, 'h'))
-            if exists(tf_lite_model_c_filename):
-                remove(tf_lite_model_c_filename)
-            f = open(tf_lite_model_c_filename, 'w')
-            f.write(hex_to_c_array(tf_lite_model, 'LSTM_ACT_MODEL'))
-            f.flush()
-            f.close()
+            TFLiteGenerator.generate_tflite_files(file_path=self._export_filepath,
+                                                  model_to_export=self._activity_model)
         else:
             raise ValueError("The model must be both created and trained before it can be exported as TF-Lite")
         return
