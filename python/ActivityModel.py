@@ -248,10 +248,19 @@ class ActivityModel:
         if self._activity_model_trained:
             # Used the trained model to predict classifications based on the test data
             predictions = self._activity_model.predict(self._x_test)
-            # Count how many of the predictions are equal to the expected classifications
-            num_correct = np.sum(np.all((np.round(predictions, 0) == self._y_test), axis=1) * 1)
 
-            print("Test accuracy {}%".format(100 * (num_correct / np.shape(self._x_test)[0])))
+            # Count how many of the predictions are equal to the expected classifications
+            pred_am = np.argmax(predictions, axis=-1)
+            y_test_am = np.argmax(self._y_test, axis=-1)
+            num_correct = pred_am == y_test_am
+            print("Test accuracy {}%".format(100 * (np.sum(num_correct) / np.shape(self._x_test)[0])))
+
+            confusion = tf.math.confusion_matrix(
+                labels=tf.constant(y_test_am),
+                predictions=tf.constant(pred_am),
+                num_classes=self._n_classes)
+
+            print("Confusion Matrix \n{}".format(confusion))
         else:
             raise RuntimeError("Train the model or load weights from checkpoint before running test")
         return

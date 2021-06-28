@@ -26,8 +26,8 @@ class MainLiveActivityClassifier:
         self._activity_model.load_model_from_checkpoint()
         return
 
-    def _get_args(self,
-                  description: str):
+    @staticmethod
+    def _get_args(description: str):
         """
         Extract and verify command line arguments
         :param description: The description of the application
@@ -42,10 +42,14 @@ class MainLiveActivityClassifier:
                             choices=ActivityModel.ModelType.model_options(),  # noqa
                             default=ActivityModel.ModelType.default_model_type(),
                             type=ActivityModel.ModelType.valid_model_type)
+        parser.add_argument("-c", "--checkpoint",
+                            help="The path where model checkpoints will be saved",
+                            default='./checkpoint/',
+                            nargs='?',
+                            type=BaseArgParser.valid_path)
         return parser.parse_args()
 
-    def run(self, argv) -> None:
-        self._get_args(argv)
+    def run(self) -> None:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(
             BLEActivityDataCollector(ble_stream=BLEClassifierStream(activity_model=self._activity_model),
@@ -54,18 +58,7 @@ class MainLiveActivityClassifier:
         loop.close()
         return
 
-    def exit_with_help(self,
-                       exit_status: int = -1) -> None:
-        """
-        Print the help message and exit with the given exit status
-        :param exit_status: exits status (-ve => error)
-        """
-        if exit_status < 0:
-            print(self._help, file=sys.stderr)
-        else:
-            print(self._help)
-        sys.exit(exit_status)
-
 
 if __name__ == "__main__":
-    MainLiveActivityClassifier().run(sys.argv[1:])
+    MainLiveActivityClassifier().run()
+    sys.exit(0)

@@ -14,11 +14,6 @@ class BaseArgParser:
                                   default='./data',
                                   nargs='?',
                                   type=self.valid_path)
-        self._parser.add_argument("-c", "--checkpoint",
-                                  help="The path where model checkpoints will be saved",
-                                  default='./checkpoint/',
-                                  nargs='?',
-                                  type=self.valid_path)
         self._parser.add_argument("-v", "--verbose",
                                   help="Enable verbose logging of activity",
                                   action='store_true')

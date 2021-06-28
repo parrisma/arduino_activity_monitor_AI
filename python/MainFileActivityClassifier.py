@@ -11,11 +11,11 @@ class MainFileActivityClassifier:
     _generate_tflite_files: bool
     _use_saved_weights: bool
     _model_type: ActivityModel.ModelType
-    _script: str
-    _help: str
+    _verbose: bool
 
     def __init__(self):
         args = self._get_args(description="Train activity classifier based on saved training data")
+        self._verbose = args.verbose
         self._experiment_file = args.experiment
         self._data_file_path = args.data
         self._checkpoint_file_path = args.checkpoint
@@ -25,8 +25,8 @@ class MainFileActivityClassifier:
         self._model_type = ActivityModel.ModelType.str2modeltype(args.model)
         return
 
-    def _get_args(self,
-                  description: str):
+    @staticmethod
+    def _get_args(description: str):
         """
         Extract and verify command line arguments
         :param description: The description of the application
@@ -51,12 +51,14 @@ class MainFileActivityClassifier:
         parser.add_argument("-t", "--tflite",
                             help="Generate the .cpp & .h mode network files for use with TFLite",
                             action='store_true')
+        parser.add_argument("-c", "--checkpoint",
+                            help="The path where model checkpoints will be saved",
+                            default='./checkpoint/',
+                            nargs='?',
+                            type=BaseArgParser.valid_path)
         return parser.parse_args()
 
-    def run(self, argv) -> None:
-
-        self._get_args(argv)
-
+    def run(self) -> None:
         activity_model = ActivityModel(data_file_path=self._data_file_path,
                                        checkpoint_filepath=self._checkpoint_file_path,
                                        export_filepath=self._export_file_path,
@@ -81,18 +83,7 @@ class MainFileActivityClassifier:
             activity_model.run_experiment()
         return
 
-    def exit_with_help(self,
-                       exit_status: int = -1) -> None:
-        """
-        Print the help message and exit with the given exit status
-        :param exit_status: exits status (-ve => error)
-        """
-        if exit_status < 0:
-            print(self._help, file=sys.stderr)
-        else:
-            print(self._help)
-        sys.exit(exit_status)
-
 
 if __name__ == "__main__":
-    MainFileActivityClassifier().run(sys.argv[1:])
+    MainFileActivityClassifier().run()
+    sys.exit(0)

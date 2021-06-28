@@ -1,65 +1,66 @@
 import sys
-import getopt
 import asyncio
 from BLEActivityDataCollector import BLEActivityDataCollector
 from BLEFileStream import BLEFileStream
+from BaseArgParser import BaseArgParser
+from os.path import isfile, exists
+from os import path
 
 
 class MainDataCollect:
-    _out_file: str
+    _data_dir: str
     _sample_time_in_seconds: int
     _script: str
     _help: str
 
     def __init__(self):
-        self._out_file = None  # noqa
-        self._sample_time_in_seconds = 10
-        self._script = 'MainDataCollect.py'
-        self._help = '{} -o <output_file> -s <sample period in seconds'.format(self._script)
+        args = self._get_args(description="Collect and store data over Bluetooth from Arduino Nano ")
+        self._verbose = args.verbose
+        self._data_dir = args.data
+        self._sample_time_in_seconds = args.sample_time
+        self._activity_type = args.activity
+        self._out_file = self._next_sequential_file()
         return
 
-    def _get_args(self, argv) -> None:
+    def _next_sequential_file(self) -> str:
         """
-        Extract command line arguments to member variable or exit with error.
-        :param argv: Command line arguments.
-        """
-        try:
-            opts, args = getopt.getopt(argv, "hs:o:", ["out=", "sample="])
-        except getopt.GetoptError:
-            self.exit_with_help()
-        for opt, arg in opts:
-            if opt == '-h':
-                self.exit_with_help(2)
-            elif opt in ("-o", "--out"):
-                self._out_file = arg
-            elif opt in ("-s", "--sample"):
-                self._sample_time_in_seconds = int(arg)
-        if self._out_file is None:
-            self.exit_with_help()
-        print("Output file is {} with a sample period of {} seconds".format(self._out_file,
-                                                                            self._sample_time_in_seconds))
-        return
+        All data files for teh activity type are of the form <data_path>/type-<n>.csv e.g. <data_path>/circle-1.csv.
+        This function used the data path and the activity type and finds the next file in the sequence.
 
-    def run(self, argv) -> None:
-        self._get_args(argv)
+        :return: The full path and name of the next file in the activity sequence.
+        """
+        file_sequence_id = 1
+        while 1:
+            next_file = path.join(self._data_dir, '{}-{}.csv'.format(self._activity_type, file_sequence_id))
+            if not exists(next_file):
+                break
+            file_sequence_id += 1
+        return next_file
+
+    @staticmethod
+    def _get_args(description: str):
+        """
+        Extract and verify command line arguments
+        :param description: The description of the application
+        """
+        parser = BaseArgParser(description).parser()
+        parser.add_argument("-s", "--sample_time",
+                            help="The number of seconds to sample and classify for",
+                            default=20,
+                            type=int)
+        parser.add_argument("-a", "--activity",
+                            help="The activity type being recorded",
+                            choices=['circle', 'up-down', 'stationary-hand'])
+        return parser.parse_args()
+
+    def run(self) -> None:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(BLEActivityDataCollector(ble_stream=BLEFileStream(self._out_file),
                                                          sample_period=self._sample_time_in_seconds).run())
         loop.close()
         return
 
-    def exit_with_help(self,
-                       exit_status: int = -1) -> None:
-        """
-        Print the help message and exit with the given exit status
-        :param exit_status: exits status (-ve => error)
-        """
-        if exit_status < 0:
-            print(self._help, file=sys.stderr)
-        else:
-            print(self._help)
-        sys.exit(exit_status)
-
 
 if __name__ == "__main__":
-    MainDataCollect().run(sys.argv[1:])
+    MainDataCollect().run()
+    sys.exit(0)
