@@ -44,8 +44,12 @@
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/version.h"
 
+#include <Arduino_LSM9DS1.h>
+
+//#include <ArduinoSTL.h>
+
 long previousMillis = 0;
-#define INTERVAL_MILLI_SEC 5000
+#define INTERVAL_MILLI_SEC 200
 
 /* RGB LED Values */
 #define RED 22
@@ -73,7 +77,7 @@ void setup() {
   pinMode(RED, OUTPUT);
   pinMode(BLUE, OUTPUT);
   pinMode(GREEN, OUTPUT);
-  pinMode(LED_BUILTIN, OUTPUT); // initialize the built-in LED pin to indicate when a central is 
+  pinMode(LED_BUILTIN, OUTPUT); // initialize the built-in LED
 
   rgb_led(BLUE);
   
@@ -87,7 +91,7 @@ void setup() {
   // NOLINTNEXTLINE(runtime-global-variables)
   static tflite::MicroErrorReporter micro_error_reporter;
   error_reporter = &micro_error_reporter;
-  TF_LITE_REPORT_ERROR(error_reporter, "Error Reporter enabled.");Serial.flush();
+  TF_LITE_REPORT_ERROR(error_reporter, "Error Reporter enabled.");
   
   rgb_led(RED);
   
@@ -104,12 +108,12 @@ void setup() {
   Serial.println("Step 2");
   rgb_led(BLUE);  
 
-  TF_LITE_REPORT_ERROR(error_reporter, "Activity Model loaded.");Serial.flush();
+  TF_LITE_REPORT_ERROR(error_reporter, "Activity Model loaded.");
 
   // This pulls in all the operation implementations we need.
   // NOLINTNEXTLINE(runtime-global-variables)
   static tflite::AllOpsResolver resolver;
-  TF_LITE_REPORT_ERROR(error_reporter, "Model operations resolved");Serial.flush();
+  TF_LITE_REPORT_ERROR(error_reporter, "Model operations resolved");
 
   Serial.println("Step 4");
   rgb_led(GREEN);
@@ -118,7 +122,7 @@ void setup() {
   static tflite::MicroInterpreter static_interpreter(
       model, resolver, tensor_arena, kTensorArenaSize, error_reporter);
   interpreter = &static_interpreter;
-  TF_LITE_REPORT_ERROR(error_reporter, "Micro Interpreter running");Serial.flush();
+  TF_LITE_REPORT_ERROR(error_reporter, "Micro Interpreter running");
 
   Serial.println("Step 5");
   rgb_led(RED);
@@ -129,8 +133,17 @@ void setup() {
     TF_LITE_REPORT_ERROR(error_reporter, "AllocateTensors() failed @ 20000");
     return;
   }
-  TF_LITE_REPORT_ERROR(error_reporter, "Tensors allocated in Arena");Serial.flush();
+  TF_LITE_REPORT_ERROR(error_reporter, "Tensors allocated in Arena");
   Serial.println("Step 6");
+
+  if (!IMU.begin()) { // Acceleromitor Initalise
+     TF_LITE_REPORT_ERROR(error_reporter, "Failed to initialize Accelerometer IMU!");
+
+    while (1);
+  }
+  TF_LITE_REPORT_ERROR(error_reporter, "Accelerometer IMU Initalised OK");
+  Serial.println("Step 7");
+  
 }
 
 // The name of this function is important for Arduino compatibility.

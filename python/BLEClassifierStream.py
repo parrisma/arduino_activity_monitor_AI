@@ -43,9 +43,10 @@ class BLEClassifierStream(BLEStream):
         Covert the current data to numpy form needed to pass to model for classification.
         :return: numpy array of dimension [1, len data, 3]
         """
-        asnp = np.zeros(self._activity_model.classification_input_shape())
+        shape = self._activity_model.classification_input_shape()
+        asnp = np.zeros(shape)
         for i in range(0, len(self._data)):
-            asnp[0, i] = np.asarray(self._data[i].get())
+            asnp[0, i] = np.asarray(self._data[i].get()).reshape(shape[2:])
             i += 1
         return asnp
 
