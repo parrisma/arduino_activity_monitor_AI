@@ -3,16 +3,16 @@
 
   For the Arduion Nano 33 BLE Sense.
 
-  This Service samples the on board accleromiter vales every <x> milli seconds and predicts one of a defined set of 
+  This Service samples the on board accleromiter vales every <x> milli seconds and predicts one of a defined set of
   activities / motions.
 
-  The activity prediction is carried out by a nerual network running under Tensorflow Lite. This model is trained 
+  The activity prediction is carried out by a nerual network running under Tensorflow Lite. This model is trained
   remotly on test data that is collected via a different sketch BLEAccDataCollect. The trained model is then
   converted to TF Lite format and imported here as LSTM-Activity-Model.h
 
   This code is extended from the magic-wand TF Lite sample from the TensorFlow folks at Google as per the Apache 2.0
   licence below.
-  
+
   ==============================================================================
   /* Copyright 2019 The TensorFlow Authors. All Rights Reserved.
 
@@ -44,12 +44,12 @@
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/version.h"
 
+#include "accelerometer_readings.h"
+
 #include <Arduino_LSM9DS1.h>
 
-//#include <ArduinoSTL.h>
-
 long previousMillis = 0;
-#define INTERVAL_MILLI_SEC 200
+#define INTERVAL_MILLI_SEC 2000
 
 /* RGB LED Values */
 #define RED 22
@@ -68,7 +68,24 @@ int inference_count = 0;
 
 constexpr int kTensorArenaSize = 5000;
 uint8_t tensor_arena[kTensorArenaSize];
+
+AccelerometerReadings ar(5);
+
 }  // namespace
+
+// The name of this function is important for Arduino compatibility.
+void _setup() {
+  rgb_led(RED);
+  Serial.begin(9600);    // initialize serial communication
+  while (!Serial);
+  Serial.println("Run Test");
+  AccelerometerReadings ar(5);
+  for (int i = 0 ; i != 20 ; i++) {
+    ar.push(i, i + 1, i + 2);
+    ar.show();
+  }
+  Serial.println("Done Test");
+}
 
 // The name of this function is important for Arduino compatibility.
 void setup() {
@@ -80,21 +97,21 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT); // initialize the built-in LED
 
   rgb_led(BLUE);
-  
+
   Serial.begin(9600);    // initialize serial communication
   while (!Serial);
 
   Serial.println("Step 1");
-  
+
   // Set up logging. Google style is to avoid globals or statics because of
   // lifetime uncertainty, but since this has a trivial destructor it's okay.
   // NOLINTNEXTLINE(runtime-global-variables)
   static tflite::MicroErrorReporter micro_error_reporter;
   error_reporter = &micro_error_reporter;
   TF_LITE_REPORT_ERROR(error_reporter, "Error Reporter enabled.");
-  
+
   rgb_led(RED);
-  
+
   // Map the model into a usable data structure. This doesn't involve any
   // copying or parsing, it's a very lightweight operation.
   model = tflite::GetModel(activity_model);
@@ -106,7 +123,7 @@ void setup() {
     return;
   }
   Serial.println("Step 2");
-  rgb_led(BLUE);  
+  rgb_led(BLUE);
 
   TF_LITE_REPORT_ERROR(error_reporter, "Activity Model loaded.");
 
@@ -120,7 +137,7 @@ void setup() {
 
   // Build an interpreter to run the model with.
   static tflite::MicroInterpreter static_interpreter(
-      model, resolver, tensor_arena, kTensorArenaSize, error_reporter);
+    model, resolver, tensor_arena, kTensorArenaSize, error_reporter);
   interpreter = &static_interpreter;
   TF_LITE_REPORT_ERROR(error_reporter, "Micro Interpreter running");
 
@@ -130,30 +147,59 @@ void setup() {
   // Allocate memory from the tensor_arena for the model's tensors.
   TfLiteStatus allocate_status = interpreter->AllocateTensors();
   if (allocate_status != kTfLiteOk) {
-    TF_LITE_REPORT_ERROR(error_reporter, "AllocateTensors() failed @ 20000");
+    TF_LITE_REPORT_ERROR(error_reporter, "AllocateTensors() failed");
     return;
   }
   TF_LITE_REPORT_ERROR(error_reporter, "Tensors allocated in Arena");
   Serial.println("Step 6");
 
+  // Report the model input dimensions
+  input = interpreter->input(0);
+  Serial.print("Model input dimensions: ");
+  Serial.println(input->dims->size);
+  for (int i = 0 ; i != input->dims->size ; i++) {
+    Serial.print("Dim :");
+    Serial.print(i);
+    Serial.print(" = ");
+    Serial.println(input->dims->data[i])  ;
+  }
+
   if (!IMU.begin()) { // Acceleromitor Initalise
-     TF_LITE_REPORT_ERROR(error_reporter, "Failed to initialize Accelerometer IMU!");
+    TF_LITE_REPORT_ERROR(error_reporter, "Failed to initialize Accelerometer IMU!");
 
     while (1);
   }
   TF_LITE_REPORT_ERROR(error_reporter, "Accelerometer IMU Initalised OK");
   Serial.println("Step 7");
-  
+
 }
 
 // The name of this function is important for Arduino compatibility.
 void loop() {
-    long currentMillis = millis();
-    // if define ms have passed, re-send lates acceleromiter values:
-    if (currentMillis - previousMillis >= INTERVAL_MILLI_SEC) {
-      previousMillis = currentMillis;
-      Serial.println("Tick .");
+  float * input_tensor = (float*)malloc(sizeof(float) * 20 * 3);
+  long currentMillis = millis();
+  // if define ms have passed, re-send lates acceleromiter values:
+  if (currentMillis - previousMillis >= INTERVAL_MILLI_SEC) {
+    previousMillis = currentMillis;
+    float x, y, z;
+    IMU.readAcceleration(x, y, z);
+    Serial.print("x: "); Serial.println(x);
+    Serial.print("y: "); Serial.println(y);
+    Serial.print("z: "); Serial.println(z);
+    ar.push(x, y, z);
+    if (ar.get_model_input(input_tensor)) {
+      ar.show();
+      Serial.print("[");
+      for (int i = 0; i != (5 * 3); i++) {
+        Serial.print(input_tensor[i]);
+        Serial.print(" , ");
+      }
+      Serial.println("]");
+    } else {
+      Serial.println("Waiting for full set of readings");
     }
+    Serial.println("Tick .");
+  }
 }
 
 void rgb_led(int value)
