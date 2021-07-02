@@ -1,5 +1,6 @@
 #include "Arduino.h"
 #include <stdlib.h>
+#include <TensorFlowLite.h>
 #include "accelerometer_readings.h"
 
 /*
@@ -38,20 +39,20 @@ AccelerometerReadings::~AccelerometerReadings() {
    Push the given x,y,z reading into the buffer. If the buffer is full then
    shift all the previous readings down 1 place. Drop the oldest reading and
    put the given reading in the newest slot (= slot 0)
+
+   If the readings are full, then we shuffle down the contents so we can put the
+   new reading in teh first position. We do this by copying the pointers to the
+   reading arrays of x,y,z rather than copying the readings. We then put the
+   readings that were in teh oldest slot in teh first slot and overwrite those
+   readings with the new readings.
+
+   This means we only do pointer manipulation to suffle down the contents and
+   as we re-use the old readings to become the first readings we dont do any
+   memory re-allocation either.
 */
 void AccelerometerReadings::push(const float x, const float y, const float z) {
   int update_point;
-  /*
-     If the readings are full, then we shuffle down the contents so we can put the
-     new reading in teh first position. We do this by copying the pointers to the
-     reading arrays of x,y,z rather than copying the readings. We then put the
-     readings that were in teh oldest slot in teh first slot and overwrite those
-     readings with the new readings.
 
-     This means we only do pointer manipulation to suffle down the contents and
-     as we re-use the old readings to become the first readings we dont do any
-     memory re-allocation either.
-  */
   if (_insert_point == _buffer_length) {
     float * tmp = _readings[_buffer_length - 1];
     for (int i = _buffer_length - 1 ; i != 0 ; i--) {
@@ -94,10 +95,10 @@ bool AccelerometerReadings::get_model_input(float * input_tensor) {
   // Do we have a full windows worth of readings ?
   bool tensor_returned = false;
   if (_insert_point == _buffer_length) {
-    Serial.println("T");
-    for (int i = 0 ; i != _buffer_length - 1 ; i++) {
-      for (int j = 0; j != 3; j++)
-        input_tensor[(1 * 3) + j] = _readings[i][j];
+    for (int i = 0 ; i < _buffer_length ; i++) {
+      for (int j = 0; j < 3; j++) {
+        input_tensor[(i * 3) + j] = _readings[i][j];
+      }
     }
     tensor_returned = true;
   }

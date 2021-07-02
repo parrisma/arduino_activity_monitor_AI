@@ -69,7 +69,9 @@ int inference_count = 0;
 constexpr int kTensorArenaSize = 5000;
 uint8_t tensor_arena[kTensorArenaSize];
 
-AccelerometerReadings ar(5);
+constexpr int kSampleWindowSize = 20;
+AccelerometerReadings ar(kSampleWindowSize);
+float * input_tensor = (float*)malloc(sizeof(float) * kSampleWindowSize * 3);
 
 }  // namespace
 
@@ -176,29 +178,34 @@ void setup() {
 
 // The name of this function is important for Arduino compatibility.
 void loop() {
-  float * input_tensor = (float*)malloc(sizeof(float) * 20 * 3);
   long currentMillis = millis();
-  // if define ms have passed, re-send lates acceleromiter values:
+  // if define ms have passed, read and classify latest accelerometer readings
   if (currentMillis - previousMillis >= INTERVAL_MILLI_SEC) {
     previousMillis = currentMillis;
     float x, y, z;
     IMU.readAcceleration(x, y, z);
-    Serial.print("x: "); Serial.println(x);
-    Serial.print("y: "); Serial.println(y);
-    Serial.print("z: "); Serial.println(z);
+    Serial.print("x: "); Serial.print(x);
+    Serial.print(" y: "); Serial.print(y);
+    Serial.print(" z: "); Serial.println(z);
     ar.push(x, y, z);
-    if (ar.get_model_input(input_tensor)) {
+    if (ar.get_model_input(input->data.f)) {
       ar.show();
-      Serial.print("[");
-      for (int i = 0; i != (5 * 3); i++) {
-        Serial.print(input_tensor[i]);
-        Serial.print(" , ");
+      // Call model via interface with readings that are loaded directly into (model_input->data.f)
+      TfLiteStatus invoke_status = interpreter->Invoke();
+      if (invoke_status != kTfLiteOk) {
+        TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed on index\n");
+        return;
+      }else{
+        Serial.println("Prediction");
+        for(int i =0; i<3; i++){
+          Serial.print(i);
+          Serial.print(" - ");
+          Serial.println(interpreter->output(0)->data.f[i]);
+        }
       }
-      Serial.println("]");
     } else {
       Serial.println("Waiting for full set of readings");
     }
-    Serial.println("Tick .");
   }
 }
 
