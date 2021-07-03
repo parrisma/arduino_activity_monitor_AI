@@ -45,17 +45,15 @@
 #include "tensorflow/lite/version.h"
 
 #include "accelerometer_readings.h"
+#include "rgb_led.h"
 
 #include <Arduino_LSM9DS1.h>
 
 long previousMillis = 0;
-#define INTERVAL_MILLI_SEC 2000
+long prevPredMillis = 0;
+#define INTERVAL_MILLI_SEC 200
+#define PREDICTION_INTERVAL 1000
 
-/* RGB LED Values */
-#define RED 22
-#define BLUE 23
-#define GREEN 24
-#define LED_OFF 0
 
 // Globals, used for compatibility with Arduino-style sketches.
 namespace {
@@ -72,33 +70,14 @@ uint8_t tensor_arena[kTensorArenaSize];
 constexpr int kSampleWindowSize = 20;
 AccelerometerReadings ar(kSampleWindowSize);
 float * input_tensor = (float*)malloc(sizeof(float) * kSampleWindowSize * 3);
+RgbLed rgb_led;
 
 }  // namespace
 
 // The name of this function is important for Arduino compatibility.
-void _setup() {
-  rgb_led(RED);
-  Serial.begin(9600);    // initialize serial communication
-  while (!Serial);
-  Serial.println("Run Test");
-  AccelerometerReadings ar(5);
-  for (int i = 0 ; i != 20 ; i++) {
-    ar.push(i, i + 1, i + 2);
-    ar.show();
-  }
-  Serial.println("Done Test");
-}
-
-// The name of this function is important for Arduino compatibility.
 void setup() {
 
-  // intitialize the digital Pin as an output
-  pinMode(RED, OUTPUT);
-  pinMode(BLUE, OUTPUT);
-  pinMode(GREEN, OUTPUT);
-  pinMode(LED_BUILTIN, OUTPUT); // initialize the built-in LED
-
-  rgb_led(BLUE);
+  rgb_led.blue();
 
   Serial.begin(9600);    // initialize serial communication
   while (!Serial);
@@ -112,8 +91,6 @@ void setup() {
   error_reporter = &micro_error_reporter;
   TF_LITE_REPORT_ERROR(error_reporter, "Error Reporter enabled.");
 
-  rgb_led(RED);
-
   // Map the model into a usable data structure. This doesn't involve any
   // copying or parsing, it's a very lightweight operation.
   model = tflite::GetModel(activity_model);
@@ -122,10 +99,10 @@ void setup() {
                          "Model provided is schema version %d not equal "
                          "to supported version %d.",
                          model->version(), TFLITE_SCHEMA_VERSION);
+    rgb_led.red();
     return;
   }
   Serial.println("Step 2");
-  rgb_led(BLUE);
 
   TF_LITE_REPORT_ERROR(error_reporter, "Activity Model loaded.");
 
@@ -135,7 +112,6 @@ void setup() {
   TF_LITE_REPORT_ERROR(error_reporter, "Model operations resolved");
 
   Serial.println("Step 4");
-  rgb_led(GREEN);
 
   // Build an interpreter to run the model with.
   static tflite::MicroInterpreter static_interpreter(
@@ -144,12 +120,12 @@ void setup() {
   TF_LITE_REPORT_ERROR(error_reporter, "Micro Interpreter running");
 
   Serial.println("Step 5");
-  rgb_led(RED);
 
   // Allocate memory from the tensor_arena for the model's tensors.
   TfLiteStatus allocate_status = interpreter->AllocateTensors();
   if (allocate_status != kTfLiteOk) {
     TF_LITE_REPORT_ERROR(error_reporter, "AllocateTensors() failed");
+    rgb_led.red();
     return;
   }
   TF_LITE_REPORT_ERROR(error_reporter, "Tensors allocated in Arena");
@@ -168,64 +144,44 @@ void setup() {
 
   if (!IMU.begin()) { // Acceleromitor Initalise
     TF_LITE_REPORT_ERROR(error_reporter, "Failed to initialize Accelerometer IMU!");
-
     while (1);
   }
   TF_LITE_REPORT_ERROR(error_reporter, "Accelerometer IMU Initalised OK");
   Serial.println("Step 7");
 
+  rgb_led.green();
 }
 
 // The name of this function is important for Arduino compatibility.
 void loop() {
   long currentMillis = millis();
+  long currPredMillis = currentMillis;
   // if define ms have passed, read and classify latest accelerometer readings
   if (currentMillis - previousMillis >= INTERVAL_MILLI_SEC) {
     previousMillis = currentMillis;
     float x, y, z;
     IMU.readAcceleration(x, y, z);
-    Serial.print("x: "); Serial.print(x);
-    Serial.print(" y: "); Serial.print(y);
-    Serial.print(" z: "); Serial.println(z);
     ar.push(x, y, z);
     if (ar.get_model_input(input->data.f)) {
-      ar.show();
-      // Call model via interface with readings that are loaded directly into (model_input->data.f)
-      TfLiteStatus invoke_status = interpreter->Invoke();
-      if (invoke_status != kTfLiteOk) {
-        TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed on index\n");
-        return;
-      }else{
-        Serial.println("Prediction");
-        for(int i =0; i<3; i++){
-          Serial.print(i);
-          Serial.print(" - ");
-          Serial.println(interpreter->output(0)->data.f[i]);
+      if (currPredMillis - prevPredMillis >= PREDICTION_INTERVAL) {
+        prevPredMillis = currPredMillis;
+        ar.show();
+        // Call model via interface with readings that are loaded directly into (model_input->data.f)
+        TfLiteStatus invoke_status = interpreter->Invoke();
+        if (invoke_status != kTfLiteOk) {
+          TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed on index\n");
+          return;
+        } else {
+          Serial.println("Prediction");
+          for (int i = 0; i < 3; i++) {
+            Serial.print(i);
+            Serial.print(" - ");
+            Serial.println(interpreter->output(0)->data.f[i]);
+          }
         }
       }
     } else {
       Serial.println("Waiting for full set of readings");
     }
-  }
-}
-
-void rgb_led(int value)
-{
-  digitalWrite(RED, LOW);
-  digitalWrite(GREEN, LOW);
-  digitalWrite(BLUE, LOW);
-  switch (value) {
-    case RED:
-      digitalWrite(RED, HIGH);
-      break;
-    case GREEN:
-      digitalWrite(GREEN, HIGH);
-      break;
-    case BLUE:
-      digitalWrite(BLUE, HIGH);
-      break;
-    case LED_OFF:
-    default:
-      break;
   }
 }

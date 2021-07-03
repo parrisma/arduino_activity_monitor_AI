@@ -41,7 +41,7 @@ AccelerometerReadings::~AccelerometerReadings() {
    put the given reading in the newest slot (= slot 0)
 
    If the readings are full, then we shuffle down the contents so we can put the
-   new reading in teh first position. We do this by copying the pointers to the
+   new reading in the first position. We do this by copying the pointers to the
    reading arrays of x,y,z rather than copying the readings. We then put the
    readings that were in teh oldest slot in teh first slot and overwrite those
    readings with the new readings.
