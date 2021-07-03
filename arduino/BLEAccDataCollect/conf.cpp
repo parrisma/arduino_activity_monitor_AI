@@ -1,0 +1,1 @@
+'{"ble": {"service_name": "ActivityPredictor", "service_uuid": "FF01", "characteristic_uuid": "F001"}}'

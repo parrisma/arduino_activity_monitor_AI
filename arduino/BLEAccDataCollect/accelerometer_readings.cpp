@@ -7,6 +7,8 @@
 // Indiciate Accelerometer IMU is not intialised
 bool AccelerometerReadings::imu_initialised = false;
 
+const int AccelerometerReadings::kBufLen = K_BUF_LEN;
+
 /*
    Return true if IMU is initalised, else return false and print
    a warning.
@@ -38,7 +40,11 @@ bool AccelerometerReadings::initialise() {
 */
 AccelerometerReadings::AccelerometerReadings(const int buffer_length) {
   _insert_point = 0;
-  _buffer_length = buffer_length;
+  if (buffer_length < 1) {
+    _buffer_length = 1;
+  } else {
+    _buffer_length = buffer_length;
+  }
   _readings = (float**)malloc(sizeof(int*) * _buffer_length);
   for (int i = 0 ; i != _buffer_length ; i++) {
     _readings[i] = (float*)malloc(sizeof(float) * 3); // each row is 3 readings, x,y,z
@@ -72,6 +78,28 @@ void AccelerometerReadings::update_with_next_reading() {
   IMU.readAcceleration(x, y, z);
   this->_push(x, y, z);
   return;
+}
+
+/*
+   Get the next acceleromter reading as structured text of the
+   form "<x value>;<y value>;<z value>"
+*/
+char * AccelerometerReadings::get_readings_as_string() {
+  float x, y, z;
+  IMU.readAcceleration(x, y, z);
+
+  for (int i = 0; i < this->kBufLen ; i++) { // clear out buffer with space chars
+    this->_buf[i] = ' ';
+  }
+
+  sprintf(this->_buf, "%f;%f;%f\n", x, y, z); // Format readings as string
+  int lenb = strlen(this->_buf);
+
+  for (int i = lenb - 1; i < this->kBufLen; i++) { // ensure \n and beyond are set to space.
+    this->_buf[i] = ' ';
+  }
+  DPRINTLN(this->_buf);
+  return this->_buf;
 }
 
 /*
