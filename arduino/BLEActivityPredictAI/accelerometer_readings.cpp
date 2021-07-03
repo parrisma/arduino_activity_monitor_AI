@@ -2,6 +2,31 @@
 #include <stdlib.h>
 #include <TensorFlowLite.h>
 #include "accelerometer_readings.h"
+#include "debug_log.h"
+
+// Indiciate Accelerometer IMU is not intialised
+bool AccelerometerReadings::imu_initialised = false;
+
+/*
+   Return true if IMU is initalised, else return false and print
+   a warning.
+*/
+bool AccelerometerReadings::_initialised() {
+  if (this->imu_initialised == true) {
+    return true;
+  }
+  DPRINTLN("WARNING: Accelerometer IMU is not yet initalised, AccelerometerReadings method skipped");
+  return false;
+}
+
+/*
+   Initialise the Accelerometer IMU
+*/
+bool AccelerometerReadings::initialise() {
+  bool ok = IMU.begin();
+  this->imu_initialised = ok;
+  return ok;
+}
 
 /*
    Dynamically allocate the buffer to hold the accelerometer readings. This will
@@ -36,6 +61,20 @@ AccelerometerReadings::~AccelerometerReadings() {
 }
 
 /*
+   Get the next acceleromter reading and update the internal
+   buffer.
+*/
+void AccelerometerReadings::update_with_next_reading() {
+  if (!this->_initialised()) {
+    return;
+  }
+  float x, y, z;
+  IMU.readAcceleration(x, y, z);
+  this->push(x, y, z);
+  return;
+}
+
+/*
    Push the given x,y,z reading into the buffer. If the buffer is full then
    shift all the previous readings down 1 place. Drop the oldest reading and
    put the given reading in the newest slot (= slot 0)
@@ -52,6 +91,10 @@ AccelerometerReadings::~AccelerometerReadings() {
 */
 void AccelerometerReadings::push(const float x, const float y, const float z) {
   int update_point;
+
+  if (!this->_initialised()) {
+    return;
+  }
 
   if (_insert_point == _buffer_length) {
     float * tmp = _readings[_buffer_length - 1];
@@ -92,6 +135,10 @@ void AccelerometerReadings::push(const float x, const float y, const float z) {
    then the function returns false and nothing is written to the input vector.
 */
 bool AccelerometerReadings::get_model_input(float * input_tensor) {
+  if (!this->_initialised()) {
+    return false;
+  }
+
   // Do we have a full windows worth of readings ?
   bool tensor_returned = false;
   if (_insert_point == _buffer_length) {
@@ -109,20 +156,20 @@ bool AccelerometerReadings::get_model_input(float * input_tensor) {
    As debug aid print the buffer contents.
 */
 void AccelerometerReadings::show() {
-  Serial.print("insert :");
-  Serial.println(_insert_point);
-  Serial.println("");
+  DPRINT("insert :");
+  DPRINTLN(_insert_point);
+  DPRINTLN("");
   for (int i = 0 ; i != _buffer_length ; i++) {
-    Serial.print("ptr ");
-    Serial.print((int)_readings[i]);
-    Serial.print("x ");
-    Serial.print(_readings[i][0]);
-    Serial.print(" y ");
-    Serial.print(_readings[i][1]);
-    Serial.print(" z");
-    Serial.print(_readings[i][2]);
-    Serial.println("");
+    DPRINT("ptr ");
+    DPRINT((int)_readings[i]);
+    DPRINT("x ");
+    DPRINT(_readings[i][0]);
+    DPRINT(" y ");
+    DPRINT(_readings[i][1]);
+    DPRINT(" z");
+    DPRINT(_readings[i][2]);
+    DPRINTLN("");
   }
-  Serial.println("---");
-  Serial.flush();
+  DPRINTLN("---");
+  DFLUSH();
 }

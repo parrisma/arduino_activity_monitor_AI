@@ -30,28 +30,26 @@
   ==============================================================================
 */
 
+#include "debug_log.h"
+
 #include <TensorFlowLite.h>
 
-#include "main_functions.h"
-
 #include "tensorflow/lite/micro/all_ops_resolver.h"
-#include "constants.h"
-#include "model.h"
 #include "activity_model.h"
-#include "output_handler.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/version.h"
 
 #include "accelerometer_readings.h"
+#include "predict.h"
 #include "rgb_led.h"
 
 #include <Arduino_LSM9DS1.h>
 
 long previousMillis = 0;
 long prevPredMillis = 0;
-#define INTERVAL_MILLI_SEC 200
+#define SAMPLE_INTERVAL_MILLI_SEC 200
 #define PREDICTION_INTERVAL 1000
 
 
@@ -68,120 +66,163 @@ constexpr int kTensorArenaSize = 5000;
 uint8_t tensor_arena[kTensorArenaSize];
 
 constexpr int kSampleWindowSize = 20;
-AccelerometerReadings ar(kSampleWindowSize);
+AccelerometerReadings accelerometer_readings(kSampleWindowSize);
 float * input_tensor = (float*)malloc(sizeof(float) * kSampleWindowSize * 3);
 RgbLed rgb_led;
+Predict predictor;
 
 }  // namespace
 
-// The name of this function is important for Arduino compatibility.
+/*
+   =======================================================
+
+   setpu() called once to initialise the Arduion.
+
+   1. Bootstrap all Tensor Flow Lite Constructs
+   2. Initialise the Accelerometer IMU & Acceleromoter readings.
+
+   =======================================================
+*/
 void setup() {
 
-  rgb_led.blue();
+  rgb_led.blue(); // Blue used to mean initialising
 
+#ifdef DEBUG_LOG
   Serial.begin(9600);    // initialize serial communication
   while (!Serial);
+#endif
 
-  Serial.println("Step 1");
 
-  // Set up logging. Google style is to avoid globals or statics because of
-  // lifetime uncertainty, but since this has a trivial destructor it's okay.
-  // NOLINTNEXTLINE(runtime-global-variables)
+  /*
+     Set up logging. Google style is to avoid globals or statics because of
+     lifetime uncertainty, but since this has a trivial destructor it's okay.
+     NOLINTNEXTLINE(runtime-global-variables)
+  */
+  DPRINTLN("Initialise TF Lite Logging");
   static tflite::MicroErrorReporter micro_error_reporter;
   error_reporter = &micro_error_reporter;
   TF_LITE_REPORT_ERROR(error_reporter, "Error Reporter enabled.");
 
-  // Map the model into a usable data structure. This doesn't involve any
-  // copying or parsing, it's a very lightweight operation.
+  /*
+    Map the model into a usable data structure. This doesn't involve any
+    copying or parsing, it's a very lightweight operation.
+  */
+  DPRINTLN("Loading tensforflow model to be ready for interence");
   model = tflite::GetModel(activity_model);
   if (model->version() != TFLITE_SCHEMA_VERSION) {
     TF_LITE_REPORT_ERROR(error_reporter,
-                         "Model provided is schema version %d not equal "
+                         "** ERROR ** : Model provided is schema version %d not equal "
                          "to supported version %d.",
                          model->version(), TFLITE_SCHEMA_VERSION);
-    rgb_led.red();
-    return;
+    rgb_led.red(); // red to indicate error
+    while (1); // Hang as this is a terminal failure
   }
-  Serial.println("Step 2");
-
   TF_LITE_REPORT_ERROR(error_reporter, "Activity Model loaded.");
 
-  // This pulls in all the operation implementations we need.
-  // NOLINTNEXTLINE(runtime-global-variables)
+  /*
+     This pulls in all the operation implementations we need.
+     NOLINTNEXTLINE(runtime-global-variables)
+  */
+  DPRINTLN("Resolving the neural net operations used by the model.");
   static tflite::AllOpsResolver resolver;
   TF_LITE_REPORT_ERROR(error_reporter, "Model operations resolved");
 
-  Serial.println("Step 4");
-
   // Build an interpreter to run the model with.
+  DPRINTLN("Starting the tensor flow micro interpreter");
   static tflite::MicroInterpreter static_interpreter(
     model, resolver, tensor_arena, kTensorArenaSize, error_reporter);
   interpreter = &static_interpreter;
   TF_LITE_REPORT_ERROR(error_reporter, "Micro Interpreter running");
 
-  Serial.println("Step 5");
-
-  // Allocate memory from the tensor_arena for the model's tensors.
+  /*
+    Allocate memory from the tensor_arena for the model's tensors.
+  */
+  DPRINTLN("Allocating model tensors");
   TfLiteStatus allocate_status = interpreter->AllocateTensors();
   if (allocate_status != kTfLiteOk) {
-    TF_LITE_REPORT_ERROR(error_reporter, "AllocateTensors() failed");
-    rgb_led.red();
-    return;
+    TF_LITE_REPORT_ERROR(error_reporter, "** ERROR ** : AllocateTensors() failed");
+    rgb_led.red(); // red to indicate error
+    while (1); // Hang as this is a terminal failure
   }
   TF_LITE_REPORT_ERROR(error_reporter, "Tensors allocated in Arena");
-  Serial.println("Step 6");
 
-  // Report the model input dimensions
+  /*
+    Log the model input dimensions
+  */
   input = interpreter->input(0);
-  Serial.print("Model input dimensions: ");
-  Serial.println(input->dims->size);
+  DPRINT("Model input dimensions: ");
+  DPRINTLN(input->dims->size);
   for (int i = 0 ; i != input->dims->size ; i++) {
-    Serial.print("Dim :");
-    Serial.print(i);
-    Serial.print(" = ");
-    Serial.println(input->dims->data[i])  ;
+    DPRINT("\t\tDim :");
+    DPRINT(i);
+    DPRINT(" = ");
+    DPRINTLN(input->dims->data[i])  ;
   }
 
-  if (!IMU.begin()) { // Acceleromitor Initalise
-    TF_LITE_REPORT_ERROR(error_reporter, "Failed to initialize Accelerometer IMU!");
-    while (1);
+  DPRINTLN("Initialise Accelerometer IMU");
+  if (!accelerometer_readings.initialise()) {
+    DPRINTLN("** ERROR ** : Accelerometer IMU Initalisation failed !!!");
+    rgb_led.red(); // red to indicate error
+    while (1); // Hang as this is a terminal failure
   }
-  TF_LITE_REPORT_ERROR(error_reporter, "Accelerometer IMU Initalised OK");
-  Serial.println("Step 7");
+  DPRINTLN("Accelerometer IMU OK");
 
+  DPRINTLN("Initialse class predictor");
+  char ** class_names = (char **)malloc(sizeof(int) * 3);
+  class_names[0] = "Circle";
+  class_names[1] = "Static";
+  class_names[2] = "Up/Down";
+  predictor.initialise(rgb_led, class_names);
+
+  rgb_led.cycle(24);
   rgb_led.green();
 }
 
-// The name of this function is important for Arduino compatibility.
+/*
+   Every <SAMPLE_INTERVAL_MILLI_SEC> take a new accelerometer reading and update the
+   buffer of accelerometer readings
+
+   Every <PREDICTION_INTERVAL> check to see if we have sufficent accelerometer readings
+   and if so convert them to a form that can be passed to the TF Lite model for prediction
+
+   Pass the model results to the prediction interpreter which will set the RGB led according
+   to which of the three prediction classes is detected
+*/
 void loop() {
   long currentMillis = millis();
   long currPredMillis = currentMillis;
-  // if define ms have passed, read and classify latest accelerometer readings
-  if (currentMillis - previousMillis >= INTERVAL_MILLI_SEC) {
+
+  /* If sample interval has passed take a new accelerometer sample.
+  */
+  if (currentMillis - previousMillis >= SAMPLE_INTERVAL_MILLI_SEC) {
     previousMillis = currentMillis;
-    float x, y, z;
-    IMU.readAcceleration(x, y, z);
-    ar.push(x, y, z);
-    if (ar.get_model_input(input->data.f)) {
-      if (currPredMillis - prevPredMillis >= PREDICTION_INTERVAL) {
+    accelerometer_readings.update_with_next_reading();
+
+    /* If the prediction interval as passed check to see if we can make
+       a model prediction.
+    */
+    if (currPredMillis - prevPredMillis >= PREDICTION_INTERVAL) {
+
+      /* If wehave sufficent accelerometer readings attempt a prediction. The get_model_input
+         method will convert the readings into teh correct form and load them directly into
+         the model input tensor.
+      */
+      if (accelerometer_readings.get_model_input(input->data.f)) {
         prevPredMillis = currPredMillis;
-        ar.show();
-        // Call model via interface with readings that are loaded directly into (model_input->data.f)
+        DSHOW(accelerometer_readings);
+
+        /* Call the model with the latest window of accelerometer readings.
+        */
         TfLiteStatus invoke_status = interpreter->Invoke();
         if (invoke_status != kTfLiteOk) {
           TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed on index\n");
           return;
         } else {
-          Serial.println("Prediction");
-          for (int i = 0; i < 3; i++) {
-            Serial.print(i);
-            Serial.print(" - ");
-            Serial.println(interpreter->output(0)->data.f[i]);
-          }
+          predictor.predict(interpreter->output(0)->data.f);
         }
+      } else {
+        DPRINTLN("Waiting for full set of readings");
       }
-    } else {
-      Serial.println("Waiting for full set of readings");
     }
   }
 }
