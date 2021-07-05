@@ -51,9 +51,9 @@ class BLEMessage:
             raise ValueError("BLE Message was none or empty")
 
         xyz = xyz_as_str.split(';')
-        if len(xyz) != 3:
+        if len(xyz) != 4:
             raise ValueError("Expected accelerometer xyz as ; separated string, but got [{}]".format(xyz_as_str))
-        x, y, z = xyz
+        x, y, z, _ = xyz
         self._accelerometer_x = float(x)
         self._accelerometer_y = float(y)
         self._accelerometer_z = float(z)
@@ -62,7 +62,7 @@ class BLEMessage:
         return self.__str__()
 
     def __str__(self) -> str:
-        return "Source {} : x: {:.3f} y: {:.3f} z: {:.3f}".format(self._source,
+        return "Source {} : x: {:.6f} y: {:.6f} z: {:.6f}".format(self._source,
                                                                   self._accelerometer_x,
                                                                   self._accelerometer_y,
                                                                   self._accelerometer_z)
