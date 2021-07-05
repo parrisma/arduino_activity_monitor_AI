@@ -1,149 +1,185 @@
 /*
-  Activity Predictor.
+  Activity Collector.
 
-  For teh Arduion Nano 33 BLE Sense.
+  For the Arduino Nano 33 BLE Sense.
 
-  This Service samples the on board accleromiter vales every <x> milli seconds and notifies the latest x,y,z values
-  via a single charactertistic. The values are updated while there is at least one connected party.
-  
-  This characteristic is formed as a string with the three float values aepated by a ; char. So the other end must split
+  This Service samples the on board accelerometer vales every <x> milli seconds and notifies the latest x,y,z values
+  via a single characteristic. The values are updated while there is at least one connected party.
+
+  This characteristic is formed as a string with the three float values separated by a ; char. So the other end must split
   and cast back to float to get the numeric values.
 
-  The intent of this service is to generate accleromiter training data that can be used to train a Neural network that 
-  can classify the activty (walking, running, cycling) of the person holding the Nano SBC.
+  The intent of this service is to generate accelerometer training data that can be used to train a Neural network that
+  can classify the activity (walking, running, cycling) of the person holding the Nano SBC.
 
-  The model is trained remotly and then run via tensor flow lite by a different Sketch.
+  The model is trained remotely and then run via tensor flow lite by a different Sketch.
 */
 
+#include "debug_log.h"
 #include <ArduinoBLE.h>
 #include <Arduino_LSM9DS1.h>
+#include "accelerometer_readings.h"
+#include "rgb_led.h"
+#include "read_conf.h"
+#include "conf.h"
 
-/* RGB LED Values */
-#define RED 22
-#define BLUE 23
-#define GREEN 24
-#define LED_OFF 0
-
-#define BLE_SERVICE_UUID "FF01" // arbitary 
+/* Globals for BLE Service
+*/
+BLEService * ActivityPredictorService;// Activity Predictor Service
+//BLECharacteristic * AccelXYZChar; // Characteristic to transmit (stream) accelerometer values
 #define BLE_ACCEL_CHARACTERISTIC_UUID "F001" // arbitary
+#define BUF_LEN 40
+int ble_message_len; // Value is set from the JSON config reader.
+BLECharacteristic AccelXYZChar1(BLE_ACCEL_CHARACTERISTIC_UUID, BLERead | BLENotify, BUF_LEN, (1 == 1) );
 
-#define INTERVAL_MILLI_SEC 200
-
-// Activity Predictor Service
-BLEService ActivityPredictorService(BLE_SERVICE_UUID);
-
-// Characteristic to transmit (stream) acceleromiter values
-#define BUF_LEN 35
-BLECharacteristic AccelXYZChar(BLE_ACCEL_CHARACTERISTIC_UUID, BLERead | BLENotify, BUF_LEN, (1 == 1) );
-
+/* Global for Accelerometer and publish cycle.
+*/
+AccelerometerReadings * accelerometer_readings;
 long previousMillis = 0;
+int sample_interval = 10000;
+
+/* JSON Config reader
+*/
+ReadConf config_reader;
+
+/* RGB Util.
+*/
+RgbLed rgb_led;
+
+/* Control var to indicate when all services have started OK
+*/
+bool started_ok = false;
 
 /*
-  Set-up the service
+  ===========================================================================================
+
+  1. Set LED Red to indicate in failed state until all setup is passed
+  2. Read JSON config so we can sync with Host Python service on shared config & BLE details.
+  3. Boot-strap Bluetooth
+  4. Boot-strap Accelerometer (we only use partial capability of this class here)
+  5. Flash the colour LEDs then set LED to green to indicate all OK.
+
+  ===========================================================================================
 */
 void setup() {
-  // intitialize the digital Pin as an output
-  pinMode(RED, OUTPUT);
-  pinMode(BLUE, OUTPUT);
-  pinMode(GREEN, OUTPUT);
-  pinMode(LED_BUILTIN, OUTPUT); // initialize the built-in LED pin to indicate when a central is connected
 
-  rgb_led(LED_OFF);
+  rgb_led.red();
 
+#ifdef DEBUG_LG
   Serial.begin(9600);    // initialize serial communication
   while (!Serial);
+#endif
 
-  rgb_led(RED); // Set led Red (failed/setting up) until all services are ok.
-  if (!BLE.begin()) { // Low Energy Blue Tooth
-    Serial.println("Failed to initialize BLE!");
-    while (1);
-  }
-  if (!IMU.begin()) { // Acceleromitor
-    Serial.println("Failed to initialize IMU!");
-    while (1);
-  }
-
-  /* Activity Predictor Service - set local name & characteristics
+  /* Load thr JSON config that is exported from the host python project so that this
+     sketch and the python servers share exactly teh same config.
   */
-  BLE.setLocalName("ActivityPredictor");
-  BLE.setAdvertisedService(ActivityPredictorService); // add the service UUID
-  ActivityPredictorService.addCharacteristic(AccelXYZChar); // add X,Y,Z Acceleromiter characteristic
-  BLE.addService(ActivityPredictorService); // Add the  service
-  AccelXYZChar.writeValue("0.0;0,0;0.0"); // set initial value
+  if (!config_reader.begin()) { // Parse JSON config.
+    DPRINTLN("Failed to parse JSON configuration.");
+    return;
+  }
+  DPRINTLN("Jason config has been parsed OK");
+
+  ReadConf::BleConnectorConfig ble_connector_config = config_reader.get_ble_connector_config();
+  sample_interval = ble_connector_config.sample_interval;
+  ble_message_len = ble_connector_config.characteristic_len;
+
+  /* Bootstrap the Bluetooth capability
+  */
+  ActivityPredictorService = new BLEService(ble_connector_config.service_uuid.c_str());
+  //AccelXYZChar = new BLECharacteristic(ble_connector_config.characteristic_uuid.c_str(),
+  //                                     BLERead | BLENotify,
+  //                                     ble_connector_config.characteristic_len,
+  //                                     (1 == 1) );
+  Serial.print("Characteristic :");
+  Serial.println(AccelXYZChar1.uuid());
+  if (!BLE.begin()) {
+    DPRINTLN("Failed to initialize BLE!");
+    return;
+  }
+  DPRINTLN("Bluetooth started");
+
+  /* BLE Activity Collector Service - set local name & characteristics
+  */
+  BLE.setLocalName(ble_connector_config.service_name.c_str());
+  BLE.setAdvertisedService(*ActivityPredictorService); // add the service UUID
+  ActivityPredictorService->addCharacteristic(AccelXYZChar1); // add X,Y,Z Accelerometer characteristic
+  BLE.addService(*ActivityPredictorService); // Add the  service
+  AccelXYZChar1.writeValue("0.0;0,0;0.0"); // set initial value
 
   /* Start advertising BLE.  It will start continuously transmitting BLE
      advertising packets and will be visible to remote BLE central devices
      until it receives a new connection */
 
-  // start advertising
+  // start advertising the Bluetooth service
   BLE.advertise();
-  rgb_led(GREEN); // Led green as we are noew ready to accept connections.
 
-  Serial.println("Activity Predictor Service, Bluetooth active, waiting for connections...");
-}
-
-void loop() {
-  // wait for a BLE central
-  BLEDevice central = BLE.central();
-
-  // if a central is connected to the peripheral:
-  if (central) {
-    Serial.print("Connected to central: ");
-    // print the central's BT address:
-    Serial.println(central.address());
-    // turn on the LED to indicate the connection:
-    rgb_led(BLUE);
-
-    // check the battery level every 200ms
-    // while the central is connected:
-    while (central.connected()) {
-      long currentMillis = millis();
-      // if define ms have passed, re-send lates acceleromiter values:
-      if (currentMillis - previousMillis >= INTERVAL_MILLI_SEC) {
-        previousMillis = currentMillis;
-        updateAcceleromiterLevels();
-      }
-    }
-    // when the central disconnects, turn the LED bqck to green:
-    rgb_led(GREEN);
-    Serial.print("Disconnected from central: ");
-    Serial.println(central.address());
-  }
-}
-
-void updateAcceleromiterLevels() {
-  /*
-    Sample and notify any connected entities of the latest acceleromiter levels.
+  /* Set-up the accelerometer
   */
-  float x, y, z;
-  IMU.readAcceleration(x, y, z);
-  char buf[BUF_LEN];
-  sprintf(buf, "%f;%f;%f\n", x, y, z);
-  int lenb = strlen(buf);
-  for (int i = lenb - 1; i < BUF_LEN; i++) {
-    buf[i] = ' ';
+  DPRINTLN("Initialise Accelerometer IMU");
+  accelerometer_readings = new AccelerometerReadings(1);
+  if (!accelerometer_readings->initialise()) {
+    DPRINTLN("** ERROR ** : Accelerometer IMU Initialisation failed !!!");
+    return;
   }
-  Serial.println(buf);
-  AccelXYZChar.writeValue(buf);
+  DPRINTLN("Accelerometer IMU initialised OK");
+
+  /* Signal all OK by sparkling the RGB lights
+  */
+  rgb_led.cycle();
+  rgb_led.green(); // Led green as we are now ready to accept connections.
+  started_ok = true;
+  DPRINTLN("Activity Collector Service, ready & waiting for connections...");
 }
 
-void rgb_led(int value)
-{
-  digitalWrite(RED, LOW);
-  digitalWrite(GREEN, LOW);
-  digitalWrite(BLUE, LOW);
-  switch (value) {
-    case RED:
-      digitalWrite(RED, HIGH);
-      break;
-    case GREEN:
-      digitalWrite(GREEN, HIGH);
-      break;
-    case BLUE:
-      digitalWrite(BLUE, HIGH);
-      break;
-    case LED_OFF:
-    default:
-      break;
+/*
+  ===========================================================================================
+
+  1. If not started OK then just re-print an error message for ever.
+  2. Else
+  3. Wait for a Bluetooth server to connect to us & set LED to Blue.
+  4. While the server is connected publish Accelerometer readings every <interval> ms
+  5. When server break connection, stop sending updates & set LED to Green
+
+  ===========================================================================================
+*/
+void loop() {
+  /* If main set-up has *all* completed OK then wait for listeners and when they connect
+     transmit new accelerometer readings to them every <sample_interval> milliseconds
+  */
+  if (started_ok) {
+    // wait for a BLE central
+    BLEDevice central = BLE.central();
+
+    // if a central is connected to the peripheral:
+    if (central) {
+      DPRINT("Connected to central: ");
+      DPRINTLN(central.address());// print the central's BT address:
+      // turn on the LED to indicate the connection:
+      rgb_led.blue();
+
+      /* Refresh and Bluetooth publish the accelerometer readings every <interval> ms
+        but only while the central is connected:
+      */
+      while (central.connected()) {
+        long currentMillis = millis();
+        // if define ms have passed, re-send latest accelerometer values:
+        if (currentMillis - previousMillis >= sample_interval) {
+          previousMillis = currentMillis;
+          DPRINT("New Reading: ");
+          char acc_reading_as_buf[ble_message_len];
+          accelerometer_readings->get_current_reading_to_ascii_buffer(acc_reading_as_buf, ble_message_len);
+          DPRINTLN(acc_reading_as_buf); // buf is terminated like a c steyle str so ok to print
+          AccelXYZChar1.writeValue(acc_reading_as_buf);
+        }
+      }
+      // When the central disconnects, turn the LED back to green:
+      rgb_led.green();
+      DPRINT("Disconnected from central: ");
+      DPRINTLN(central.address());
+    }
+  } else {
+    // We can never escape from here we just keep reporting failure until the Arduion is reset
+    DPRINTLN("Failed to start");
+    delay(1000);
   }
 }

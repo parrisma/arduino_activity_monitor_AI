@@ -12,8 +12,6 @@
 #define DSHOW(X)
 #endif
 
-#define K_BUF_LEN 35
-
 class AccelerometerReadings  {
   private:
     static bool imu_initialised;
@@ -21,23 +19,19 @@ class AccelerometerReadings  {
     AccelerometerReadings();
     int _buffer_length;
     int _insert_point;
-    char _buf[K_BUF_LEN];
     float **_readings;
 
     bool _initialised();
     void _push(const float x, const float y, const float z);
 
   public:
-
-    static const int kBufLen;
-
     AccelerometerReadings(const int buffer_length);
     ~AccelerometerReadings();
     bool initialise();
-    void update_with_next_reading();
+    void update_with_current_reading();
     void show();
     bool get_readings_as_model_input_tensor(float * input_tensor);
-    char * get_readings_as_string();
+    void get_current_reading_to_ascii_buffer(char * buf, int buf_len);
 };
 
 #endif // ACCELEROMETER_READING_H

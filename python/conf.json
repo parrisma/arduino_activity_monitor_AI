@@ -1,0 +1,48 @@
+{
+  "ble_collector": {
+    "service_name": "ActivityCollector",
+    "ble_base_uuid": "-0000-1000-8000-00805F9B34FB",
+    "service_uuid": "FF01",
+    "characteristic_uuid": "0000F001",
+    "characteristic_len": 35,
+    "sample_interval": 200
+  },
+  "ble_predictor": {
+    "service_name": "ActivityPredictor",
+    "service_uuid": "FF02",
+    "characteristic_uuid": "F002",
+    "predict_interval": 100
+  },
+  "model": {
+    "look_back_window_size": 20,
+    "tf_lite": {
+      "arena_size": 5000
+    },
+    "classes": [
+      {
+        "class_name": "circle",
+        "one_hot": [
+          1,
+          0,
+          0
+        ]
+      },
+      {
+        "class_name": "stationary",
+        "one_hot": [
+          0,
+          1,
+          0
+        ]
+      },
+      {
+        "class_name": "up-down",
+        "one_hot": [
+          0,
+          0,
+          1
+        ]
+      }
+    ]
+  }
+}

@@ -22,7 +22,6 @@ RgbLed::RgbLed() {
   pinMode(this->kBlue, OUTPUT);
   pinMode(this->kGreen, OUTPUT);
 
-  int last_colour = this->kOff;
   digitalWrite(this->kRed, this->kRgbOff);
   digitalWrite(this->kGreen, this->kRgbOff);
   digitalWrite(this->kBlue, this->kRgbOff);

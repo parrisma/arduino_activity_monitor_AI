@@ -1,13 +1,12 @@
 #include "Arduino.h"
 #include <stdlib.h>
+#include <avr/dtostrf.h>
 #include <TensorFlowLite.h>
 #include "accelerometer_readings.h"
 #include "debug_log.h"
 
 // Indiciate Accelerometer IMU is not intialised
 bool AccelerometerReadings::imu_initialised = false;
-
-const int AccelerometerReadings::kBufLen = K_BUF_LEN;
 
 /*
    Return true if IMU is initalised, else return false and print
@@ -70,7 +69,7 @@ AccelerometerReadings::~AccelerometerReadings() {
    Get the next acceleromter reading and update the internal
    buffer.
 */
-void AccelerometerReadings::update_with_next_reading() {
+void AccelerometerReadings::update_with_current_reading() {
   if (!this->_initialised()) {
     return;
   }
@@ -81,25 +80,39 @@ void AccelerometerReadings::update_with_next_reading() {
 }
 
 /*
-   Get the next acceleromter reading as structured text of the
-   form "<x value>;<y value>;<z value>"
+   Get the next acceleromter reading as structured text of the form
+   "<x value>;<y value>;<z value>".
+
+   Each float is formatted as a 999.99999, so with an optional leading minus sign and
+   a trailing ; between the three numbers the buffer that is passed in
+   must be at least 3 * len("-999.999999") + 2 * len(";") = char buf[35+1].
+
+   It is up to the caller to manager the buffer that is passed in.
+
+   :param buf: A pre allocated char array of min length 35 chars.
+   :param buf_len: The actual lenght of teh buffer that is passed.
 */
-char * AccelerometerReadings::get_readings_as_string() {
+void AccelerometerReadings::get_current_reading_to_ascii_buffer(char * buf, int buf_len) {
   float x, y, z;
-  IMU.readAcceleration(x, y, z);
 
-  for (int i = 0; i < this->kBufLen ; i++) { // clear out buffer with space chars
-    this->_buf[i] = ' ';
+  this->update_with_current_reading(); // Update with latest reading from accelerometer.
+
+  x = this->_readings[0][0];
+  y = this->_readings[0][1];
+  z = this->_readings[0][2];
+
+  char xs[14], ys[14], zs[14]; // [-]999.999999 = 12 chars max in length.
+  dtostrf(x, 3, 6, xs);
+  dtostrf(y, 3, 6, ys);
+  dtostrf(z, 3, 6, zs);
+  sprintf(buf, "%s;%s;%s;", xs, ys, zs);
+  int data_len = strlen(";;;") + strlen(xs) + strlen(ys) + strlen(zs);
+  for (int i = data_len; i < buf_len; i++) {
+    buf[i] = ' ';
   }
+  buf[buf_len - 1] = '\0';
 
-  sprintf(this->_buf, "%f;%f;%f\n", x, y, z); // Format readings as string
-  int lenb = strlen(this->_buf);
-
-  for (int i = lenb - 1; i < this->kBufLen; i++) { // ensure \n and beyond are set to space.
-    this->_buf[i] = ' ';
-  }
-  DPRINTLN(this->_buf);
-  return this->_buf;
+  return;
 }
 
 /*
@@ -124,20 +137,21 @@ void AccelerometerReadings::_push(const float x, const float y, const float z) {
     return;
   }
 
-  if (_insert_point == _buffer_length) {
-    float * tmp = _readings[_buffer_length - 1];
-    for (int i = _buffer_length - 1 ; i != 0 ; i--) {
-      _readings[i] = _readings[i - 1];
+  if (this->_insert_point == this->_buffer_length) {
+    float * tmp = this->_readings[this->_buffer_length - 1];
+    for (int i = this->_buffer_length - 1 ; i != 0 ; i--) {
+      this->_readings[i] = this->_readings[i - 1];
     }
     update_point = 0;
-    _readings[0] = tmp;
+    this->_readings[0] = tmp;
   } else {
-    update_point = _insert_point;
-    _insert_point++;
+    update_point = this->_insert_point;
+    this->_insert_point++;
   }
-  _readings[update_point][0] = x;
-  _readings[update_point][1] = y;
-  _readings[update_point][2] = z;
+
+  this->_readings[update_point][0] = x;
+  this->_readings[update_point][1] = y;
+  this->_readings[update_point][2] = z;
   return;
 }
 
@@ -200,4 +214,5 @@ void AccelerometerReadings::show() {
   }
   DPRINTLN("---");
   DFLUSH();
+  return;
 }
