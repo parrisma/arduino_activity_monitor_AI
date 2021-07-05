@@ -3,7 +3,8 @@ import asyncio
 from BLEActivityDataCollector import BLEActivityDataCollector
 from BLEFileStream import BLEFileStream
 from BaseArgParser import BaseArgParser
-from os.path import isfile, exists
+from Conf import Conf
+from os.path import exists
 from os import path
 
 
@@ -12,6 +13,7 @@ class MainDataCollect:
     _sample_time_in_seconds: int
     _script: str
     _help: str
+    _config_file: str
 
     def __init__(self):
         args = self._get_args(description="Collect and store data over Bluetooth from Arduino Nano ")
@@ -20,6 +22,7 @@ class MainDataCollect:
         self._sample_time_in_seconds = args.sample_time
         self._activity_type = args.activity
         self._out_file = self._next_sequential_file()
+        self._config_file = args.json
         return
 
     def _next_sequential_file(self) -> str:
@@ -55,7 +58,8 @@ class MainDataCollect:
 
     def run(self) -> None:
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(BLEActivityDataCollector(ble_stream=BLEFileStream(self._out_file),
+        loop.run_until_complete(BLEActivityDataCollector(conf=Conf(self._config_file),
+                                                         ble_stream=BLEFileStream(self._out_file),
                                                          sample_period=self._sample_time_in_seconds).run())
         loop.close()
         return
