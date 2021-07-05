@@ -17,6 +17,11 @@ class BaseArgParser:
         self._parser.add_argument("-v", "--verbose",
                                   help="Enable verbose logging of activity",
                                   action='store_true')
+        self._parser.add_argument("-j", "--json",
+                                  help="The JSON config file",
+                                  default='./conf.json',
+                                  nargs='?',
+                                  type=BaseArgParser.valid_file)
         return
 
     def parser(self) -> argparse.ArgumentParser:
