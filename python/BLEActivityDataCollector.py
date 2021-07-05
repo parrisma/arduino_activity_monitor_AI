@@ -3,21 +3,20 @@ from bleak import BleakScanner
 from bleak import BleakClient
 from BLEMessage import BLEMessage
 from BLEStream import BLEStream
+from Conf import Conf
 
 
 class BLEActivityDataCollector:
     """
     Class to connect to the Arduino Nano BLE device and consume & record accelerometer updates.
     """
-    _ble_device_name: str
+    _ble_device_name: str  # The name as of the Arduino BLE device as set in the sketch loaded on that device
     _ble_connect_timeout: int
     _sample_period: int
-    _ble_base_uuid: str
+    _ble_base_uuid: str  # All BLE UUID have a common base UUID
+    _ble_characteristic_uuid: str  # This UUID is arbitrary and must just be the same here and in the sketch (conf.json)
     _notify_uuid_accel_xyz: str
     _verbose: bool
-
-    # The name as of the Arduino BLE device as set in the sketch loaded on that device
-    _ble_device_name = "ActivityPredictor"
 
     # connect timeout in seconds for waiting for the BLE device to accept connection.
     _ble_connect_timeout = 20
@@ -25,13 +24,8 @@ class BLEActivityDataCollector:
     # The number of seconds to collect updates for.
     _sample_period = 10
 
-    # All BLE UUID have a common base UUID
-    _ble_base_uuid = "-0000-1000-8000-00805F9B34FB"
-
-    # This UUID is set in the Arduino Sketch - it is arbitrary and must just be the same here and in the sketch
-    _notify_uuid_accel_xyz = "0000f001" + _ble_base_uuid.format(0xFFE1)
-
     def __init__(self,
+                 conf: Conf,
                  ble_stream: BLEStream,
                  sample_period: int = 10,
                  verbose: bool = True):
@@ -40,6 +34,14 @@ class BLEActivityDataCollector:
         :param ble_stream: The BLE Stream to send the updates to.
         """
         self._verbose = verbose
+        try:
+            self._ble_device_name = conf.config['ble_collector']['service_name']
+            self._ble_base_uuid = conf.config['ble_collector']['ble_base_uuid']
+            self._ble_characteristic_uuid = conf.config['ble_collector']['characteristic_uuid']
+        except Exception as e:
+            raise ValueError(
+                "Missing or bad settings in config file [{}] with error [{}]".format(conf.source_file, str(e)))
+        self._notify_uuid_accel_xyz = self._ble_characteristic_uuid + self._ble_base_uuid.format(0XFFE1)
         self._sample_period = sample_period
         self._ble_device_address = None
         self._ble_stream = ble_stream
@@ -66,16 +68,16 @@ class BLEActivityDataCollector:
         for d in devices:
             if d.name == self._ble_device_name:
                 self._ble_device_address = d
-                break  # we only connect to teh first device with this name
+                break  # we only connect to the first device with this name
 
         if self._ble_device_address is not None:
             async with BleakClient(self._ble_device_address, timeout=self._ble_connect_timeout) as client:
 
                 print("connect to {} at address {}".format(self._ble_device_name, self._ble_device_address))
                 try:
-                    await client.start_notify(BLEActivityDataCollector._notify_uuid_accel_xyz, self.callback_accel_xyz)
+                    await client.start_notify(self._notify_uuid_accel_xyz, self.callback_accel_xyz)
                     await asyncio.sleep(self._sample_period)
-                    await client.stop_notify(BLEActivityDataCollector._notify_uuid_accel_xyz)
+                    await client.stop_notify(self._notify_uuid_accel_xyz)
                     print("Disconnect from {} at address {}".format(self._ble_device_name, self._ble_device_address))
                     self._ble_stream.close()
                     print("Done Ok")

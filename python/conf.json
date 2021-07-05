@@ -4,7 +4,7 @@
     "ble_base_uuid": "-0000-1000-8000-00805F9B34FB",
     "service_uuid": "FF01",
     "characteristic_uuid": "0000F001",
-    "characteristic_len": 35,
+    "characteristic_len": 40,
     "sample_interval": 200
   },
   "ble_predictor": {
