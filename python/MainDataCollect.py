@@ -53,7 +53,7 @@ class MainDataCollect:
                             type=int)
         parser.add_argument("-a", "--activity",
                             help="The activity type being recorded",
-                            choices=['circle', 'up-down', 'stationary-hand'])
+                            choices=['circle', 'up-down', 'stationary'])
         return parser.parse_args()
 
     def run(self) -> None:

@@ -13,6 +13,7 @@ from os import listdir, remove
 from os.path import isfile, join, exists
 from sklearn.model_selection import train_test_split
 from TFLiteGenerator import TFLiteGenerator
+from Conf import Conf
 
 
 class ActivityModel:
@@ -82,6 +83,7 @@ class ActivityModel:
     _ACTIVITY_NAME = 2
 
     def __init__(self,
+                 conf: Conf,
                  data_file_path: str,
                  checkpoint_filepath: str,
                  export_filepath: str,
@@ -91,24 +93,28 @@ class ActivityModel:
         rcParams.update({'figure.autolayout': True})  # graph plotting.
         physical_devices = tf.config.list_physical_devices('GPU')
         tf.config.experimental.set_memory_growth(physical_devices[0], True)
-        self._n_features = 3  # x,y,z Accelerometer readings
-        self._look_back_window_size = 20
+        self._activity_model_type = model_type
+        model_name = model_type.name.lower()
+        self._n_features = conf.config[model_name]['num_features']  # x,y,z Accelerometer readings
+        self._look_back_window_size = conf.config[model_name]['look_back_window_size']
         self._test_on_load = test_on_load
         self._activity_model_trained = False
-        self._training_steps = 250
+        self._training_steps = conf.config[model_name]['training_steps']
         self._data_file_path = data_file_path
         self._checkpoint_filepath = checkpoint_filepath
         self._export_filepath = export_filepath
         self._generate_tflite = generate_tflite
-        self._check_point_file_name_format = 'cp-{epoch:04d}.ckpt'
+        self._check_point_file_name_format = 'cp-' + model_name + '-{epoch:04d}.ckpt'
         self._check_point_file_pattern = re.compile('.*cp.*ckpt.*')
-        self._activity_classes = [
-            (re.compile('^circle.*\\.csv$'), np.array([1, 0, 0]), "Circle"),
-            (re.compile('^stationary.*\\.csv$'), np.array([0, 1, 0]), "Stationary"),
-            (re.compile('^up-down.*\\.csv$'), np.array([0, 0, 1]), "Up Down")
-        ]
+        self._activity_classes = list()
+        for cls in conf.config['classes']:
+            class_name = cls['class_name']
+            one_hot = cls['one_hot']
+            x = tuple((1, 2, 3))
+            self._activity_classes.append(tuple((re.compile('^' + class_name + '.*\\.csv$'),
+                                                 np.array(one_hot),
+                                                 class_name)))
         self._n_classes = len(self._activity_classes)  # Circle, Up-Down & Stationary
-        self._activity_model_type = model_type
         self._activity_model, self._activity_model_input_shape = self.create_model(self._activity_model_type)
         self._x_train = None
         self._x_test = None

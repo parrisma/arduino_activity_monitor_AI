@@ -11,39 +11,58 @@
   "ble_predictor": {
     "service_name": "ActivityPredictor",
     "service_uuid": "FF02",
-    "characteristic_uuid": "F002",
+    "characteristic_uuid": "0000F002",
+    "characteristic_uuid_ble": "F001",
     "predict_interval": 100
   },
-  "model": {
+  "cnn": {
     "look_back_window_size": 20,
+    "num_features": 3,
+    "training_steps": 250,
     "tf_lite": {
       "arena_size": 5000
+    }
+  },
+  "lstm": {
+    "look_back_window_size": 20,
+    "num_features": 3,
+    "training_steps": 250,
+    "tf_lite": {
+      "arena_size": 5000
+    }
+  },
+  "simple": {
+    "look_back_window_size": 20,
+    "num_features": 3,
+    "training_steps": 250,
+    "tf_lite": {
+      "arena_size": 5000
+    }
+  },
+  "classes": [
+    {
+      "class_name": "circle",
+      "one_hot": [
+        1,
+        0,
+        0
+      ]
     },
-    "classes": [
-      {
-        "class_name": "circle",
-        "one_hot": [
-          1,
-          0,
-          0
-        ]
-      },
-      {
-        "class_name": "stationary",
-        "one_hot": [
-          0,
-          1,
-          0
-        ]
-      },
-      {
-        "class_name": "up-down",
-        "one_hot": [
-          0,
-          0,
-          1
-        ]
-      }
-    ]
-  }
+    {
+      "class_name": "stationary",
+      "one_hot": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "class_name": "up-down",
+      "one_hot": [
+        0,
+        0,
+        1
+      ]
+    }
+  ]
 }

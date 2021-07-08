@@ -4,6 +4,7 @@ from BLEActivityDataCollector import BLEActivityDataCollector
 from BLEClassifierStream import BLEClassifierStream
 from ActivityModel import ActivityModel
 from BaseArgParser import BaseArgParser
+from Conf import Conf
 
 
 class MainLiveActivityClassifier:
@@ -12,14 +13,19 @@ class MainLiveActivityClassifier:
     _script: str
     _help: str
     _verbose: bool
+    _config_file: str
+    _conf: Conf
 
     def __init__(self):
         args = self._get_args(description="Classify a live stream of accelerometer readings from the Arduino")
+        self._config_file = args.json
+        self._conf = Conf(self._config_file)
         self._verbose = args.verbose
         self._sample_time_in_seconds = args.sample_time
         self._model_type = ActivityModel.ModelType.str2modeltype(args.model)
 
-        self._activity_model = ActivityModel(data_file_path=args.data,
+        self._activity_model = ActivityModel(conf=self._conf,
+                                             data_file_path=args.data,
                                              checkpoint_filepath=args.checkpoint,
                                              export_filepath='',
                                              model_type=self._model_type)
@@ -52,7 +58,8 @@ class MainLiveActivityClassifier:
     def run(self) -> None:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(
-            BLEActivityDataCollector(ble_stream=BLEClassifierStream(activity_model=self._activity_model),
+            BLEActivityDataCollector(conf=self._conf,
+                                     ble_stream=BLEClassifierStream(activity_model=self._activity_model),
                                      sample_period=self._sample_time_in_seconds,
                                      verbose=self._verbose).run())
         loop.close()

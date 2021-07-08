@@ -1,6 +1,7 @@
 import sys
 from ActivityModel import ActivityModel
 from BaseArgParser import BaseArgParser
+from Conf import Conf
 
 
 class MainFileActivityClassifier:
@@ -11,6 +12,7 @@ class MainFileActivityClassifier:
     _generate_tflite_files: bool
     _use_saved_weights: bool
     _model_type: ActivityModel.ModelType
+    _config_file: str
     _verbose: bool
 
     def __init__(self):
@@ -22,6 +24,7 @@ class MainFileActivityClassifier:
         self._use_saved_weights = args.load_weights
         self._export_file_path = args.generate
         self._generate_tflite_files = args.tflite
+        self._config_file = args.json
         self._model_type = ActivityModel.ModelType.str2modeltype(args.model)
         return
 
@@ -59,7 +62,9 @@ class MainFileActivityClassifier:
         return parser.parse_args()
 
     def run(self) -> None:
-        activity_model = ActivityModel(data_file_path=self._data_file_path,
+        conf = Conf(self._config_file)
+        activity_model = ActivityModel(conf=conf,
+                                       data_file_path=self._data_file_path,
                                        checkpoint_filepath=self._checkpoint_file_path,
                                        export_filepath=self._export_file_path,
                                        generate_tflite=self._generate_tflite_files,
