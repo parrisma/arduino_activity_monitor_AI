@@ -1,5 +1,5 @@
 #include "read_conf.h"
-#include "conf.h"
+#include "json_conf.h"
 #include "debug_log.h"
 
 /*
@@ -50,6 +50,7 @@ void ReadConf::_extract_ble_connector_config(JsonObject & config_doc) {
   this->_ble_connector_config.service_name = config_doc["ble_collector"]["service_name"].as<String>();
   this->_ble_connector_config.service_uuid = config_doc["ble_collector"]["service_uuid"].as<String>();
   this->_ble_connector_config.characteristic_uuid = config_doc["ble_collector"]["characteristic_uuid"].as<String>();
+  this->_ble_connector_config.characteristic_uuid_ble = config_doc["ble_collector"]["characteristic_uuid_ble"].as<String>();
   this->_ble_connector_config.characteristic_len = config_doc["ble_collector"]["characteristic_len"].as<String>().toInt();
   this->_ble_connector_config.sample_interval = config_doc["ble_collector"]["sample_interval"].as<String>().toInt();
 }

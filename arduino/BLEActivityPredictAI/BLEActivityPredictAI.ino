@@ -87,7 +87,7 @@ void setup() {
 
   rgb_led.blue(); // Blue used to mean initialising
 
-#ifdef DEBUG_LOG
+#ifdef DEBUG_LG
   Serial.begin(9600);    // initialize serial communication
   while (!Serial);
 #endif
@@ -207,7 +207,7 @@ void loop() {
          method will convert the readings into teh correct form and load them directly into
          the model input tensor.
       */
-      if (accelerometer_readings.get_model_input(input->data.f)) {
+      if (accelerometer_readings.get_readings_as_model_input_tensor(input->data.f)) {
         prevPredMillis = currPredMillis;
         DSHOW(accelerometer_readings);
 

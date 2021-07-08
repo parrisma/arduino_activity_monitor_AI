@@ -22,16 +22,16 @@ class AccelerometerReadings  {
     float **_readings;
 
     bool _initialised();
+    void _push(const float x, const float y, const float z);
     
   public:
 
     AccelerometerReadings(const int buffer_length);
     ~AccelerometerReadings();
-    void push(const float x, const float y, const float z);
     bool initialise();
     void update_with_next_reading();
     void show();
-    bool get_model_input(float * input_tensor);
+    bool get_readings_as_model_input_tensor(float * input_tensor);
 };
 
 #endif // ACCELEROMETER_READING_H

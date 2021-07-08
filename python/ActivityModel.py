@@ -88,7 +88,7 @@ class ActivityModel:
                  model_type: ModelType = ModelType.CNN,
                  generate_tflite: bool = False,
                  test_on_load: bool = True):
-        rcParams.update({'figure.autolayout': True})
+        rcParams.update({'figure.autolayout': True})  # graph plotting.
         physical_devices = tf.config.list_physical_devices('GPU')
         tf.config.experimental.set_memory_growth(physical_devices[0], True)
         self._n_features = 3  # x,y,z Accelerometer readings

@@ -89,7 +89,12 @@ void AccelerometerReadings::update_with_current_reading() {
 
    It is up to the caller to manager the buffer that is passed in.
 
-   :param buf: A pre allocated char array of min length 35 chars.
+   The Python server side will see this arrive as a bytearray that it will need
+   to utf-8 decode. What is sent is a fixed length array of Ascii *not* a terminated
+   string. So to make the buffer printable in C++ we null terminate it. So the
+   server side will have to drop this last byte before decoding it.
+
+   :param buf: A pre allocated char array of min length 39 chars. (see len calcs in code below)
    :param buf_len: The actual lenght of teh buffer that is passed.
 */
 void AccelerometerReadings::get_current_reading_to_ascii_buffer(char * buf, int buf_len) {
@@ -110,7 +115,7 @@ void AccelerometerReadings::get_current_reading_to_ascii_buffer(char * buf, int 
   for (int i = data_len; i < buf_len; i++) {
     buf[i] = ' ';
   }
-  buf[buf_len - 1] = '\0';
+  buf[buf_len - 1] = '\0'; // Server side will drop this terminator char
 
   return;
 }

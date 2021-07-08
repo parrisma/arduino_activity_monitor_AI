@@ -15,6 +15,7 @@ class BLEActivityDataCollector:
     _sample_period: int
     _ble_base_uuid: str  # All BLE UUID have a common base UUID
     _ble_characteristic_uuid: str  # This UUID is arbitrary and must just be the same here and in the sketch (conf.json)
+    _ble_characteristic_len: int  # The number of bytes that make up the message
     _notify_uuid_accel_xyz: str
     _verbose: bool
 
@@ -38,6 +39,8 @@ class BLEActivityDataCollector:
             self._ble_device_name = conf.config['ble_collector']['service_name']
             self._ble_base_uuid = conf.config['ble_collector']['ble_base_uuid']
             self._ble_characteristic_uuid = conf.config['ble_collector']['characteristic_uuid']
+            self._ble_characteristic_uuid = conf.config['ble_collector']['characteristic_uuid']
+            self._ble_characteristic_len = int(conf.config['ble_collector']['characteristic_len'])
         except Exception as e:
             raise ValueError(
                 "Missing or bad settings in config file [{}] with error [{}]".format(conf.source_file, str(e)))
@@ -54,7 +57,7 @@ class BLEActivityDataCollector:
         :param sender: The details of the BLE Device sending the Notify
         :param data: The data attached to the notify message
         """
-        ble_msg = BLEMessage(source=sender, value=data)
+        ble_msg = BLEMessage(source=sender, value=data[:self._ble_characteristic_len - 1])  # drop terminator char
         self._ble_stream.write_value(ble_msg)
         if self._verbose:
             print(str(ble_msg))

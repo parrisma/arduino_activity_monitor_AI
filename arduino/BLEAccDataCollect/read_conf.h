@@ -10,11 +10,12 @@ class ReadConf  {
     */
     class BleConnectorConfig {
       public:
-        String service_name;
-        String service_uuid;
-        String characteristic_uuid;
-        int characteristic_len;
-        int sample_interval;
+        String service_name; // The BLE Service name advertised by Arduino
+        String service_uuid; // The BLE Service UUID
+        String characteristic_uuid; // The BLE Characteristic UUID as required by Python Bluetooth lib.
+        String characteristic_uuid_ble; // The BLE Characteristic UUIS as required by the Arduino BLE library
+        int characteristic_len; // The number of bytes send as the Bluetooth message
+        int sample_interval; // The number of milliseconds to wait between sending Accelerometer updates.
     };
 
   private:

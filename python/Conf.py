@@ -5,13 +5,17 @@ from ConfigGenerator import ConfigGenerator
 class Conf:
     _conf: object
     _source_file: str
+    _export_path: str
 
     def __init__(self,
-                 json_config_file: str) -> None:
+                 json_config_file: str,
+                 export_path: str = "./") -> None:
         """
         Open and parse the JSON config file.
         :param json_config_file: The JSON config file to parse
+        :param export_path: path where JSON can be exported as cpp files for use with Arduino sketches
         """
+        self._export_path = export_path
         fl = None
         try:
             fl = open(json_config_file, 'r')
@@ -21,8 +25,6 @@ class Conf:
         finally:
             if fl is not None:
                 fl.close()
-
-        self.export_as_cpp()
         return
 
     @property
@@ -49,5 +51,5 @@ class Conf:
 
         ArduionJson: https://github.com/bblanchon/ArduinoJson
         """
-        ConfigGenerator().generate_conf_files(".", json.dumps(self._conf))
+        ConfigGenerator().generate_conf_files(self._export_path, json.dumps(self._conf))
         return

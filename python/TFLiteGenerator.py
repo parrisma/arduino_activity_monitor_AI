@@ -68,7 +68,6 @@ class TFLiteGenerator:
         """
         Generate the .h header file that will be used to import the model in TF Lite format on the
         Micro Controller.
-        :param file_name: the name of the file to save the header file in.
         :param model_name: the name of the model to use as the cpp environment variable
         """
         h_str = ''

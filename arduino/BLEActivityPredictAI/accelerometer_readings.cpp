@@ -70,7 +70,7 @@ void AccelerometerReadings::update_with_next_reading() {
   }
   float x, y, z;
   IMU.readAcceleration(x, y, z);
-  this->push(x, y, z);
+  this->_push(x, y, z);
   return;
 }
 
@@ -89,7 +89,7 @@ void AccelerometerReadings::update_with_next_reading() {
    as we re-use the old readings to become the first readings we dont do any
    memory re-allocation either.
 */
-void AccelerometerReadings::push(const float x, const float y, const float z) {
+void AccelerometerReadings::_push(const float x, const float y, const float z) {
   int update_point;
 
   if (!this->_initialised()) {
@@ -134,7 +134,7 @@ void AccelerometerReadings::push(const float x, const float y, const float z) {
    If less then _buffer_length readings have been pushed to this collection
    then the function returns false and nothing is written to the input vector.
 */
-bool AccelerometerReadings::get_model_input(float * input_tensor) {
+bool AccelerometerReadings::get_readings_as_model_input_tensor(float * input_tensor) {
   if (!this->_initialised()) {
     return false;
   }

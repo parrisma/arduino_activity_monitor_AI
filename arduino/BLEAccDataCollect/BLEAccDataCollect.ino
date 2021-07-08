@@ -3,8 +3,8 @@
 
   For the Arduino Nano 33 BLE Sense.
 
-  This Service samples the on board accelerometer vales every <x> milli seconds and notifies the latest x,y,z values
-  via a single characteristic. The values are updated while there is at least one connected party.
+  This Service samples the on board accelerometer vales every <x> milli seconds and the sends them over Bluetooth 
+  via a single characteristic. The values are updated while there is at least one remote connected party.
 
   This characteristic is formed as a string with the three float values separated by a ; char. So the other end must split
   and cast back to float to get the numeric values.
@@ -21,22 +21,20 @@
 #include "accelerometer_readings.h"
 #include "rgb_led.h"
 #include "read_conf.h"
-#include "conf.h"
+#include "json_conf.h"
 
-/* Globals for BLE Service
-*/
-BLEService * ActivityPredictorService;// Activity Predictor Service
-//BLECharacteristic * AccelXYZChar; // Characteristic to transmit (stream) accelerometer values
-#define BLE_ACCEL_CHARACTERISTIC_UUID "F001" // arbitary
-#define BUF_LEN 40
-int ble_message_len; // Value is set from the JSON config reader.
-BLECharacteristic AccelXYZChar1(BLE_ACCEL_CHARACTERISTIC_UUID, BLERead | BLENotify, BUF_LEN, (1 == 1) );
+// Activity Collector Service - value set from json config
+BLEService * ActivityCollectorService;
+
+// BLE Characteristic (message) - Value set from JSON config
+BLECharacteristic * AccelXYZChar = NULL;
+int ble_message_len = 0; // number of bytes to send over BLE - set from JSON config.
 
 /* Global for Accelerometer and publish cycle.
 */
 AccelerometerReadings * accelerometer_readings;
 long previousMillis = 0;
-int sample_interval = 10000;
+int sample_interval = 0; // Value set from JSON config.
 
 /* JSON Config reader
 */
@@ -85,13 +83,14 @@ void setup() {
 
   /* Bootstrap the Bluetooth capability
   */
-  ActivityPredictorService = new BLEService(ble_connector_config.service_uuid.c_str());
-  //AccelXYZChar = new BLECharacteristic(ble_connector_config.characteristic_uuid.c_str(),
-  //                                     BLERead | BLENotify,
-  //                                     ble_connector_config.characteristic_len,
-  //                                     (1 == 1) );
-  Serial.print("Characteristic :");
-  Serial.println(AccelXYZChar1.uuid());
+  DPRINT("Svc:- [");
+  DPRINT(ble_connector_config.service_name.c_str());
+  DPRINTLN("]");
+  ActivityCollectorService = new BLEService(ble_connector_config.service_uuid.c_str());
+  AccelXYZChar = new BLECharacteristic(ble_connector_config.characteristic_uuid_ble.c_str(), BLERead | BLENotify, ble_message_len, (1 == 1) );
+  
+  Serial.print("Characteristic UUID :-");
+  Serial.println(AccelXYZChar->uuid());
   if (!BLE.begin()) {
     DPRINTLN("Failed to initialize BLE!");
     return;
@@ -101,10 +100,10 @@ void setup() {
   /* BLE Activity Collector Service - set local name & characteristics
   */
   BLE.setLocalName(ble_connector_config.service_name.c_str());
-  BLE.setAdvertisedService(*ActivityPredictorService); // add the service UUID
-  ActivityPredictorService->addCharacteristic(AccelXYZChar1); // add X,Y,Z Accelerometer characteristic
-  BLE.addService(*ActivityPredictorService); // Add the  service
-  AccelXYZChar1.writeValue("0.0;0,0;0.0"); // set initial value
+  BLE.setAdvertisedService(*ActivityCollectorService); // add the service UUID
+  ActivityCollectorService->addCharacteristic(*AccelXYZChar); // add X,Y,Z Acceleromiter characteristic
+  BLE.addService(*ActivityCollectorService); // Add the  service
+  AccelXYZChar->writeValue("0.0;0,0;0.0"); // set initial value
 
   /* Start advertising BLE.  It will start continuously transmitting BLE
      advertising packets and will be visible to remote BLE central devices
@@ -128,7 +127,8 @@ void setup() {
   rgb_led.cycle();
   rgb_led.green(); // Led green as we are now ready to accept connections.
   started_ok = true;
-  DPRINTLN("Activity Collector Service, ready & waiting for connections...");
+  DPRINT(ble_connector_config.service_name.c_str());
+  DPRINTLN(" Service, ready & waiting for connections...");
 }
 
 /*
@@ -138,7 +138,7 @@ void setup() {
   2. Else
   3. Wait for a Bluetooth server to connect to us & set LED to Blue.
   4. While the server is connected publish Accelerometer readings every <interval> ms
-  5. When server break connection, stop sending updates & set LED to Green
+  5. When server breaks connection, stop sending updates & set LED to Green
 
   ===========================================================================================
 */
@@ -168,8 +168,8 @@ void loop() {
           DPRINT("New Reading: ");
           char acc_reading_as_buf[ble_message_len];
           accelerometer_readings->get_current_reading_to_ascii_buffer(acc_reading_as_buf, ble_message_len);
-          DPRINTLN(acc_reading_as_buf); // buf is terminated like a c steyle str so ok to print
-          AccelXYZChar1.writeValue(acc_reading_as_buf);
+          DPRINTLN(acc_reading_as_buf); // buf is terminated like a c style str so ok to print here
+          AccelXYZChar->writeValue(acc_reading_as_buf); // Server side will remove the terminator before decoding.
         }
       }
       // When the central disconnects, turn the LED back to green:
@@ -179,7 +179,7 @@ void loop() {
     }
   } else {
     // We can never escape from here we just keep reporting failure until the Arduion is reset
-    DPRINTLN("Failed to start");
+    DPRINTLN("Bluetooth data collector - Failed to start");
     delay(1000);
   }
 }
