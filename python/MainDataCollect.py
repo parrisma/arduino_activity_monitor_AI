@@ -16,7 +16,7 @@ class MainDataCollect:
     _config_file: str
 
     def __init__(self):
-        args = self._get_args(description="Collect and store data over Bluetooth from Arduino Nano ")
+        args = self._get_args(description="Collect and store accelerometer data over Bluetooth from Arduino Nano ")
         self._verbose = args.verbose
         self._data_dir = args.data
         self._sample_time_in_seconds = args.sample_time

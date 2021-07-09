@@ -179,7 +179,7 @@ void loop() {
     }
   } else {
     // We can never escape from here we just keep reporting failure until the Arduion is reset
-    DPRINTLN("Bluetooth data collector - Failed to start");
+    DPRINTLN("Bluetooth Data Collector - Failed to start");
     delay(1000);
   }
 }

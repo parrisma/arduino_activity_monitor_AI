@@ -13,7 +13,9 @@
     "service_uuid": "FF02",
     "characteristic_uuid": "0000F002",
     "characteristic_uuid_ble": "F001",
-    "predict_interval": 100
+    "sample_interval": 200,
+    "predict_interval": 1000,
+    "model_type": "cnn"
   },
   "cnn": {
     "look_back_window_size": 20,

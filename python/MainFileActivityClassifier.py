@@ -16,7 +16,7 @@ class MainFileActivityClassifier:
     _verbose: bool
 
     def __init__(self):
-        args = self._get_args(description="Train activity classifier based on saved training data")
+        args = self._get_args(description="Train activity classifier model on saved accelerometer training data")
         self._verbose = args.verbose
         self._experiment_file = args.experiment
         self._data_file_path = args.data

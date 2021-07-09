@@ -7,7 +7,7 @@ class MainConvertJson:
     _config_file: str
 
     def __init__(self):
-        args = self._get_args(description="Collect and store data over Bluetooth from Arduino Nano ")
+        args = self._get_args(description="Convert JSON settings to .cpp and .h for Arduino")
         self._config_file = args.json
         self._export_path = args.xport
         return

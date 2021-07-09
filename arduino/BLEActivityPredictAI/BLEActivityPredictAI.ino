@@ -28,6 +28,9 @@
   See the License for the specific language governing permissions and
   limitations under the License.
   ==============================================================================
+
+  See also" https://www.tensorflow.org/lite/microcontrollers/get_started_low_level
+
 */
 
 #include "debug_log.h"
@@ -40,21 +43,21 @@
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/version.h"
-
 #include "accelerometer_readings.h"
 #include "predict.h"
 #include "rgb_led.h"
-
+#include "read_conf.h"
+#include "json_conf.h"
 #include <Arduino_LSM9DS1.h>
 
 long previousMillis = 0;
 long prevPredMillis = 0;
-#define SAMPLE_INTERVAL_MILLI_SEC 200
-#define PREDICTION_INTERVAL 1000
 
-
-// Globals, used for compatibility with Arduino-style sketches.
+/*
+   Globals as variables need to be visible to both setup() and loop() Arduion callbacks
+*/
 namespace {
+
 tflite::ErrorReporter* error_reporter = nullptr;
 const tflite::Model* model = nullptr;
 tflite::MicroInterpreter* interpreter = nullptr;
@@ -62,14 +65,38 @@ TfLiteTensor* input = nullptr;
 TfLiteTensor* output = nullptr;
 int inference_count = 0;
 
-constexpr int kTensorArenaSize = 5000;
-uint8_t tensor_arena[kTensorArenaSize];
+/*
+   Working space to TF Lite to run the model. Size varies depending on the
+   specific model imported via activity_model.cpp; The size estimate can
+   be done using
+*/
+uint8_t * tensor_arena;
 
-constexpr int kSampleWindowSize = 20;
-AccelerometerReadings accelerometer_readings(kSampleWindowSize);
-float * input_tensor = (float*)malloc(sizeof(float) * kSampleWindowSize * 3);
+/* Manage accelerometer readings.
+ */
+//constexpr int kSampleWindowSize = 20;
+//AccelerometerReadings accelerometer_readings(kSampleWindowSize);
+//float * input_tensor = (float*)malloc(sizeof(float) * kSampleWindowSize * 3);
+AccelerometerReadings * accelerometer_readings = NULL;
+float * input_tensor = NULL;
+
+/* Manage the on board colour LED
+*/
 RgbLed rgb_led;
+
+/* Class to manage predictions based on accelerometer readings & the loaed TF (lite) model
+*/
 Predict predictor;
+
+/* JSON Config reader
+*/
+ReadConf * config_reader = NULL;
+ReadConf::BlePredictorConfig const * ble_predictor_config = NULL;
+ReadConf::BleCNNConfig const * ble_cnn_config = NULL;
+
+/* Control var to indicate when all services have started OK
+*/
+bool started_ok = false;
 
 }  // namespace
 
@@ -92,7 +119,33 @@ void setup() {
   while (!Serial);
 #endif
 
+  /* Load thr JSON config that is exported from the host python project so that this
+     sketch and the python servers share exactly teh same config.
+  */
+  config_reader = new ReadConf();
+  if (!config_reader->begin()) { // Parse JSON config.
+    DPRINTLN("Failed to parse JSON configuration.");
+    return;
+  }
+  DPRINTLN("Jason config has been parsed OK");
 
+  /* Extract predictor configuration.
+  */
+  ble_predictor_config = (ReadConf::BlePredictorConfig const *)&config_reader->get_ble_predictor_config();
+  ble_cnn_config = (ReadConf::BleCNNConfig const *)&config_reader->get_ble_cnn_config();
+
+  Serial.print("LB :");
+  Serial.println(ble_cnn_config->look_back_window_size);
+  Serial.print("Arena :");
+  Serial.println(ble_cnn_config->arena_size);
+  Serial.println("-*-");
+
+  /* Manager for Accelerometer readings
+   */
+  accelerometer_readings = new AccelerometerReadings(ble_cnn_config->look_back_window_size);
+  input_tensor = (float*)malloc(sizeof(float) * ble_cnn_config->look_back_window_size * 3);
+
+   
   /*
      Set up logging. Google style is to avoid globals or statics because of
      lifetime uncertainty, but since this has a trivial destructor it's okay.
@@ -115,7 +168,7 @@ void setup() {
                          "to supported version %d.",
                          model->version(), TFLITE_SCHEMA_VERSION);
     rgb_led.red(); // red to indicate error
-    while (1); // Hang as this is a terminal failure
+    return;
   }
   TF_LITE_REPORT_ERROR(error_reporter, "Activity Model loaded.");
 
@@ -129,8 +182,10 @@ void setup() {
 
   // Build an interpreter to run the model with.
   DPRINTLN("Starting the tensor flow micro interpreter");
+  const int tensor_arena_size = (const int)ble_cnn_config->arena_size;
+  tensor_arena = (uint8_t *)malloc(sizeof(uint8_t) * tensor_arena_size);
   static tflite::MicroInterpreter static_interpreter(
-    model, resolver, tensor_arena, kTensorArenaSize, error_reporter);
+    model, resolver, tensor_arena, tensor_arena_size, error_reporter);
   interpreter = &static_interpreter;
   TF_LITE_REPORT_ERROR(error_reporter, "Micro Interpreter running");
 
@@ -142,7 +197,7 @@ void setup() {
   if (allocate_status != kTfLiteOk) {
     TF_LITE_REPORT_ERROR(error_reporter, "** ERROR ** : AllocateTensors() failed");
     rgb_led.red(); // red to indicate error
-    while (1); // Hang as this is a terminal failure
+    return;
   }
   TF_LITE_REPORT_ERROR(error_reporter, "Tensors allocated in Arena");
 
@@ -160,22 +215,23 @@ void setup() {
   }
 
   DPRINTLN("Initialise Accelerometer IMU");
-  if (!accelerometer_readings.initialise()) {
+  if (!accelerometer_readings->initialise()) {
     DPRINTLN("** ERROR ** : Accelerometer IMU Initalisation failed !!!");
     rgb_led.red(); // red to indicate error
-    while (1); // Hang as this is a terminal failure
+    return;
   }
   DPRINTLN("Accelerometer IMU OK");
 
   DPRINTLN("Initialse class predictor");
   char ** class_names = (char **)malloc(sizeof(int) * 3);
   class_names[0] = "Circle";
-  class_names[1] = "Static";
+  class_names[1] = "Stationary";
   class_names[2] = "Up/Down";
   predictor.initialise(rgb_led, class_names);
 
   rgb_led.cycle(24);
   rgb_led.green();
+  started_ok = true;
 }
 
 /*
@@ -192,37 +248,44 @@ void loop() {
   long currentMillis = millis();
   long currPredMillis = currentMillis;
 
-  /* If sample interval has passed take a new accelerometer sample.
-  */
-  if (currentMillis - previousMillis >= SAMPLE_INTERVAL_MILLI_SEC) {
-    previousMillis = currentMillis;
-    accelerometer_readings.update_with_next_reading();
+  if (started_ok) { // Did set-up finish sucessfuly.
 
-    /* If the prediction interval as passed check to see if we can make
-       a model prediction.
+    /* If sample interval has passed take a new accelerometer sample.
     */
-    if (currPredMillis - prevPredMillis >= PREDICTION_INTERVAL) {
+    if (currentMillis - previousMillis >= ble_predictor_config->sample_interval) {
+      previousMillis = currentMillis;
+      accelerometer_readings->update_with_next_reading();
 
-      /* If wehave sufficent accelerometer readings attempt a prediction. The get_model_input
-         method will convert the readings into teh correct form and load them directly into
-         the model input tensor.
+      /* If the prediction interval as passed check to see if we can make
+         a model prediction.
       */
-      if (accelerometer_readings.get_readings_as_model_input_tensor(input->data.f)) {
-        prevPredMillis = currPredMillis;
-        DSHOW(accelerometer_readings);
+      if (currPredMillis - prevPredMillis >= ble_predictor_config->predict_interval) {
 
-        /* Call the model with the latest window of accelerometer readings.
+        /* If wehave sufficent accelerometer readings attempt a prediction. The get_model_input
+           method will convert the readings into teh correct form and load them directly into
+           the model input tensor.
         */
-        TfLiteStatus invoke_status = interpreter->Invoke();
-        if (invoke_status != kTfLiteOk) {
-          TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed on index\n");
-          return;
+        if (accelerometer_readings->get_readings_as_model_input_tensor(input->data.f)) {
+          prevPredMillis = currPredMillis;
+          DSHOW(*accelerometer_readings);
+
+          /* Call the model with the latest window of accelerometer readings.
+          */
+          TfLiteStatus invoke_status = interpreter->Invoke();
+          if (invoke_status != kTfLiteOk) {
+            TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed on index\n");
+            return;
+          } else {
+            predictor.predict(interpreter->output(0)->data.f);
+          }
         } else {
-          predictor.predict(interpreter->output(0)->data.f);
+          DPRINTLN("Waiting for full set of readings");
         }
-      } else {
-        DPRINTLN("Waiting for full set of readings");
       }
     }
+  } else {
+    // We can never escape from here we just keep reporting failure until the Arduion is reset
+    DPRINTLN("Activity Predictor - Failed to start");
+    delay(1000);
   }
 }
