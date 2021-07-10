@@ -11,6 +11,8 @@ const int RgbLed::kRed = 22;
 const int RgbLed::kBlue = 24;
 const int RgbLed::kGreen = 23;
 const int RgbLed::kOff = 0;
+const int RgbLed::kOnBoard = LED_BUILTIN;
+
 
 const int RgbLed::kCycleCount = 12;
 const int RgbLed::kCycleIntervalOnMillis = 100;
@@ -54,6 +56,17 @@ void RgbLed::green() {
   return;
 }
 
+/* Turn the on-board LED on
+*/
+void RgbLed::onBoardOn() {
+  digitalWrite(RgbLed::kOnBoard, HIGH);
+}
+
+/* Turn the on-board LED off
+*/
+void RgbLed::onBoardOff() {
+  digitalWrite(RgbLed::kOnBoard, LOW);
+}
 
 /* Set build in LED to off.
 */

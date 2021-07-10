@@ -15,7 +15,7 @@ class Predict  {
     Predict();
     void initialise(RgbLed rbg_led,
                     char **class_name);
-    void predict(float *prediction_tensor);
+    char const * predict(float *prediction_tensor);
 };
 
 #endif // PREDICT_H

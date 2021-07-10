@@ -32,7 +32,7 @@ int Predict::_argmax(float *a) {
   Take a tensor of softmax predictions. find the argmax and set the color of the RGB
   to match the prediction.
 */
-void Predict::predict(float *prediction_tensor) {
+char const * Predict::predict(float *prediction_tensor) {
   for (int i = 0; i < this->_num_classes; i++) {
     DPRINT(this->_class_names[i]);
     DPRINT(" - ");
@@ -40,24 +40,29 @@ void Predict::predict(float *prediction_tensor) {
   }
 
   int prediction = this->_argmax(prediction_tensor);
+  char const * predicted = NULL;
   DPRINT("Prediction : ");
   switch (prediction) {
     case 0:
       this->_rgb_led.red();
-      DPRINTLN(this->_class_names[prediction]);
+      predicted = this->_class_names[prediction];
+      DPRINTLN(predicted);
       break;
     case 1:
       this->_rgb_led.blue();
-      DPRINTLN(this->_class_names[prediction]);
+      predicted = this->_class_names[prediction];
+      DPRINTLN(predicted);
       break;
     case 2:
       this->_rgb_led.green();
-      DPRINTLN(this->_class_names[prediction]);
+      predicted = this->_class_names[prediction];
+      DPRINTLN(predicted);
       break;
     default:
       this->_rgb_led.off();
       DPRINTLN("** ERROR **: Unknown prediction class");
       break;
+
   }
-  return;
+  return predicted;
 }

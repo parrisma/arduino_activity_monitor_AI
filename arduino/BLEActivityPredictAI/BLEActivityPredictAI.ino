@@ -49,9 +49,9 @@
 #include "read_conf.h"
 #include "json_conf.h"
 #include <Arduino_LSM9DS1.h>
+#include <ArduinoBLE.h>
+#include <Arduino_LSM9DS1.h>
 
-long previousMillis = 0;
-long prevPredMillis = 0;
 
 /*
    Globals as variables need to be visible to both setup() and loop() Arduion callbacks
@@ -91,6 +91,20 @@ ReadConf * config_reader = NULL;
 ReadConf::BlePredictorConfig const * ble_predictor_config = NULL;
 ReadConf::BleCNNConfig const * ble_cnn_config = NULL;
 ReadConf::BleClassesConf const * ble_classes_config = NULL;
+
+/* Time tracking to detect sample & predict interval expiry in loop()
+*/
+long previousMillis = 0;
+long prevPredMillis = 0;
+
+/* Bluetooth (Low Energy) Service & Characteristic.
+*/
+BLEService * ActivityPredictorService; // value set from json config
+
+// BLE Characteristic (message) - Value set from JSON config
+BLECharacteristic * PredictChar = NULL;
+int ble_message_len = 0; // number of bytes to send over BLE - set from JSON config.
+char * ble_message_buffer = (char *)NULL;
 
 /* Control var to indicate when all services have started OK
 */
@@ -132,6 +146,41 @@ void setup() {
   ble_predictor_config = (ReadConf::BlePredictorConfig const *)&config_reader->get_ble_predictor_config();
   ble_cnn_config = (ReadConf::BleCNNConfig const *)&config_reader->get_ble_cnn_config();
   ble_classes_config = (ReadConf::BleClassesConf const *)&config_reader->get_ble_classes_config();
+
+  /* Bootstrap the Bluetooth capability
+  */
+  DPRINT("Svc:- [");
+  DPRINT(ble_predictor_config->service_name.c_str());
+  DPRINTLN("]");
+  ble_message_len = ble_predictor_config->characteristic_len;
+  Serial.print("Characteristic Len :-");
+  Serial.println(ble_message_len);
+  ActivityPredictorService = new BLEService(ble_predictor_config->service_uuid.c_str());
+  PredictChar = new BLECharacteristic(ble_predictor_config->characteristic_uuid_ble.c_str(), BLERead | BLENotify, ble_message_len, (1 == 1) );
+  ble_message_buffer = (char *)malloc(sizeof(char) * ble_message_len); // fixed length buffer to send BLE message in via the BLE characteristic
+
+  Serial.print("Characteristic UUID :-");
+  Serial.println(PredictChar->uuid());
+  if (!BLE.begin()) {
+    DPRINTLN("Failed to initialize Bluetooth!");
+    return;
+  }
+  DPRINTLN("Bluetooth started");
+
+  /* BLE Activity Collector Service - set local name & characteristics
+  */
+  BLE.setLocalName(ble_predictor_config->service_name.c_str());
+  BLE.setAdvertisedService(*ActivityPredictorService); // add the service UUID
+  ActivityPredictorService->addCharacteristic(*PredictChar); // add prediction characteristic
+  BLE.addService(*ActivityPredictorService); // Add the  service
+  PredictChar->writeValue("??????????"); // set initial value, no prediction
+
+  /* Start advertising BLE.  It will start continuously transmitting BLE
+     advertising packets and will be visible to remote BLE central devices
+     until it receives a new connection */
+
+  // start advertising the Bluetooth service
+  BLE.advertise();
 
   /* Manager for Accelerometer readings
   */
@@ -248,26 +297,41 @@ void loop() {
          a model prediction.
       */
       if (currPredMillis - prevPredMillis >= ble_predictor_config->predict_interval) {
+        BLEDevice central = BLE.central(); // wait for a BLE connection.
 
-        /* If wehave sufficent accelerometer readings attempt a prediction. The get_model_input
-           method will convert the readings into teh correct form and load them directly into
-           the model input tensor.
-        */
-        if (accelerometer_readings->get_readings_as_model_input_tensor(input->data.f)) {
-          prevPredMillis = currPredMillis;
-          DSHOW(*accelerometer_readings);
+        if (central) {
+          DPRINT("Connected to central: ");
+          DPRINTLN(central.address());// print the central's BT address:
+          rgb_led.onBoardOn();
 
-          /* Call the model with the latest window of accelerometer readings.
+
+          /* If wehave sufficent accelerometer readings attempt a prediction. The get_model_input
+             method will convert the readings into teh correct form and load them directly into
+             the model input tensor.
           */
-          TfLiteStatus invoke_status = interpreter->Invoke();
-          if (invoke_status != kTfLiteOk) {
-            TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed on index\n");
-            return;
+          if (accelerometer_readings->get_readings_as_model_input_tensor(input->data.f)) {
+            prevPredMillis = currPredMillis;
+            DSHOW(*accelerometer_readings);
+
+            /* Call the model with the latest window of accelerometer readings.
+            */
+            TfLiteStatus invoke_status = interpreter->Invoke();
+            if (invoke_status != kTfLiteOk) {
+              TF_LITE_REPORT_ERROR(error_reporter, "TF Lite model prediction invokation failed!\n");
+              return;
+            } else {
+              char const * prediction = predictor.predict(interpreter->output(0)->data.f);
+              if (prediction != NULL) {
+                PredictChar->writeValue(str_2_buf(prediction, ble_message_buffer, ble_message_len));
+              }
+            }
           } else {
-            predictor.predict(interpreter->output(0)->data.f);
+            DPRINTLN("Waiting for full set of readings");
           }
-        } else {
-          DPRINTLN("Waiting for full set of readings");
+        }
+        else {
+          DPRINTLN("Waiting for Bluetooth connection.");
+          rgb_led.onBoardOff();
         }
       }
     }
@@ -276,4 +340,24 @@ void loop() {
     DPRINTLN("Activity Predictor - Failed to start");
     delay(1000);
   }
+}
+
+/* Copy the variable length string into the given fixed
+   lenght buffer. Truncate if longer, pad with space char
+   if shorter.
+*/
+char * str_2_buf(char const * c_str, // Null terminated
+                 char * buf,
+                 int buf_len) {
+  for (int i = 0; i < buf_len; i++) {
+    buf[i] = ' ';
+  }
+  int l = strlen(c_str);
+  if (l > buf_len) {
+    l = buf_len;
+  }
+  for (int i = 0; i < l; i++) {
+    buf[i] = c_str[i];
+  }
+  return buf;
 }

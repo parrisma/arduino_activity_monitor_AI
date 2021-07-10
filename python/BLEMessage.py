@@ -57,6 +57,7 @@ class BLEMessage:
         self._accelerometer_x = float(x)
         self._accelerometer_y = float(y)
         self._accelerometer_z = float(z)
+        return
 
     def __repr__(self) -> str:
         return self.__str__()

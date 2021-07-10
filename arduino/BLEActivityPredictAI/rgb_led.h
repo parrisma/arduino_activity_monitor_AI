@@ -11,6 +11,7 @@ class RgbLed  {
     static const int kBlue;
     static const int kGreen;
     static const int kOff;
+    static const int kOnBoard;
 
     int last_colour;
 
@@ -27,6 +28,8 @@ class RgbLed  {
     void blue();
     void green();
     void off();
+    void onBoardOn();
+    void onBoardOff();
     void cycle(int cycle_count = RgbLed::kCycleCount,
                int cycle_interval_on = RgbLed::kCycleIntervalOnMillis,
                int cycle_interval_ff = RgbLed::kCycleIntervalOffMillis);

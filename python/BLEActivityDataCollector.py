@@ -32,7 +32,11 @@ class BLEActivityDataCollector:
                  verbose: bool = True):
         """
         Establish the BLEActivityCollector
+        :param conf: JSON Config manager
         :param ble_stream: The BLE Stream to send the updates to.
+        :param sample_period: The number of seconds to listen for
+        :param verbose: If True enable verbose logging
+
         """
         self._verbose = verbose
         try:
@@ -66,8 +70,8 @@ class BLEActivityDataCollector:
     async def run(self):
         devices = await BleakScanner.discover()  # Scan for available BLE devices
 
-        # Connect to the device with the name 'ActivityPredictor'; this is arbitrary and is set in the
-        # sketch loaded on the Arduino nano. So must just match up both ends.
+        # Connect to the device 'ActivityCollector'; the exact device name is set in the JSON config.
+        # The Arduino sketches use the same JSON config
         for d in devices:
             if d.name == self._ble_device_name:
                 self._ble_device_address = d

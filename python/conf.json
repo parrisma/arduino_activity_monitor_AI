@@ -10,9 +10,11 @@
   },
   "ble_predictor": {
     "service_name": "ActivityPredictor",
+    "ble_base_uuid": "-0000-1000-8000-00805F9B34FB",
     "service_uuid": "FF02",
     "characteristic_uuid": "0000F002",
-    "characteristic_uuid_ble": "F001",
+    "characteristic_uuid_ble": "F002",
+    "characteristic_len": 15,
     "sample_interval": 200,
     "predict_interval": 1000,
     "model_type": "cnn"

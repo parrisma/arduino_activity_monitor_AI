@@ -89,10 +89,8 @@ void setup() {
   ActivityCollectorService = new BLEService(ble_connector_config.service_uuid.c_str());
   AccelXYZChar = new BLECharacteristic(ble_connector_config.characteristic_uuid_ble.c_str(), BLERead | BLENotify, ble_message_len, (1 == 1) );
   
-  Serial.print("Characteristic UUID :-");
-  Serial.println(AccelXYZChar->uuid());
   if (!BLE.begin()) {
-    DPRINTLN("Failed to initialize BLE!");
+    DPRINTLN("Failed to initialize Bluetooth!");
     return;
   }
   DPRINTLN("Bluetooth started");
