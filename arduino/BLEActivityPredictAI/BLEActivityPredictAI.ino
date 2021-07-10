@@ -73,10 +73,7 @@ int inference_count = 0;
 uint8_t * tensor_arena;
 
 /* Manage accelerometer readings.
- */
-//constexpr int kSampleWindowSize = 20;
-//AccelerometerReadings accelerometer_readings(kSampleWindowSize);
-//float * input_tensor = (float*)malloc(sizeof(float) * kSampleWindowSize * 3);
+*/
 AccelerometerReadings * accelerometer_readings = NULL;
 float * input_tensor = NULL;
 
@@ -93,6 +90,7 @@ Predict predictor;
 ReadConf * config_reader = NULL;
 ReadConf::BlePredictorConfig const * ble_predictor_config = NULL;
 ReadConf::BleCNNConfig const * ble_cnn_config = NULL;
+ReadConf::BleClassesConf const * ble_classes_config = NULL;
 
 /* Control var to indicate when all services have started OK
 */
@@ -133,19 +131,13 @@ void setup() {
   */
   ble_predictor_config = (ReadConf::BlePredictorConfig const *)&config_reader->get_ble_predictor_config();
   ble_cnn_config = (ReadConf::BleCNNConfig const *)&config_reader->get_ble_cnn_config();
-
-  Serial.print("LB :");
-  Serial.println(ble_cnn_config->look_back_window_size);
-  Serial.print("Arena :");
-  Serial.println(ble_cnn_config->arena_size);
-  Serial.println("-*-");
+  ble_classes_config = (ReadConf::BleClassesConf const *)&config_reader->get_ble_classes_config();
 
   /* Manager for Accelerometer readings
-   */
+  */
   accelerometer_readings = new AccelerometerReadings(ble_cnn_config->look_back_window_size);
-  input_tensor = (float*)malloc(sizeof(float) * ble_cnn_config->look_back_window_size * 3);
+  input_tensor = (float*)malloc(sizeof(float) * ble_cnn_config->look_back_window_size * ble_cnn_config->num_features);
 
-   
   /*
      Set up logging. Google style is to avoid globals or statics because of
      lifetime uncertainty, but since this has a trivial destructor it's okay.
@@ -223,11 +215,7 @@ void setup() {
   DPRINTLN("Accelerometer IMU OK");
 
   DPRINTLN("Initialse class predictor");
-  char ** class_names = (char **)malloc(sizeof(int) * 3);
-  class_names[0] = "Circle";
-  class_names[1] = "Stationary";
-  class_names[2] = "Up/Down";
-  predictor.initialise(rgb_led, class_names);
+  predictor.initialise(rgb_led, ble_classes_config->class_names);
 
   rgb_led.cycle(24);
   rgb_led.green();

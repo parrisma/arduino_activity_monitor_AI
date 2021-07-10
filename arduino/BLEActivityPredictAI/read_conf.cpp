@@ -36,10 +36,11 @@ bool ReadConf::begin() {
     this->_extract_ble_connector_config(config_doc);
     this->_extract_ble_predictor_config(config_doc);
     this->_extract_ble_cnn_config(config_doc);
+    this->_extract_ble_classes(config_doc);
     is_ok = true;
   } else {
     DPRINT("Failed to parse JSON with error: ");
-    DPRINTLN(error.f_str());
+    DPRINTLN(error.c_str());
   }
 
   return is_ok;
@@ -56,6 +57,7 @@ void ReadConf::_extract_ble_connector_config(JsonObject & config_doc) {
   this->_ble_connector_config.characteristic_uuid_ble = config_doc["ble_collector"]["characteristic_uuid_ble"].as<String>();
   this->_ble_connector_config.characteristic_len = config_doc["ble_collector"]["characteristic_len"].as<String>().toInt();
   this->_ble_connector_config.sample_interval = config_doc["ble_collector"]["sample_interval"].as<String>().toInt();
+  return;
 }
 
 const ReadConf::BleConnectorConfig & ReadConf::get_ble_connector_config() {
@@ -74,6 +76,7 @@ void ReadConf::_extract_ble_predictor_config(JsonObject & config_doc) {
   this->_ble_predictor_config.characteristic_len = config_doc["ble_predictor"]["characteristic_len"].as<String>().toInt();
   this->_ble_predictor_config.sample_interval = config_doc["ble_predictor"]["sample_interval"].as<String>().toInt();
   this->_ble_predictor_config.predict_interval = config_doc["ble_predictor"]["predict_interval"].as<String>().toInt();
+  return;
 }
 
 const ReadConf::BlePredictorConfig & ReadConf::get_ble_predictor_config() {
@@ -85,9 +88,33 @@ const ReadConf::BlePredictorConfig & ReadConf::get_ble_predictor_config() {
 */
 void ReadConf::_extract_ble_cnn_config(JsonObject & config_doc) {
   this->_ble_cnn_config.look_back_window_size = config_doc["cnn"]["look_back_window_size"].as<String>().toInt();
+  this->_ble_cnn_config.num_features = config_doc["cnn"]["num_features"].as<String>().toInt();
   this->_ble_cnn_config.arena_size = config_doc["cnn"]["tf_lite"]["arena_size"].as<String>().toInt();
+  return;
 }
 
 const ReadConf::BleCNNConfig & ReadConf::get_ble_cnn_config() {
   return this->_ble_cnn_config;
+}
+
+/*
+  Extract the names of the classification classes
+*/
+void ReadConf::_extract_ble_classes(JsonObject & config_doc) {
+  int i = 0;
+  while (config_doc["classes"][i]["class_name"].as<String>() != String("null")) {
+    i++;
+  }
+  this->_ble_classes.num_classes = i;
+  this->_ble_classes.class_names = (char **)malloc(sizeof(char *) * this->_ble_classes.num_classes);
+  for (int j = 0; j < i; j++) {
+    String s = config_doc["classes"][j]["class_name"].as<String>();
+    this->_ble_classes.class_names[j] = (char *)malloc(s.length() + 1);
+    strcpy(this->_ble_classes.class_names[j], s.c_str());
+  }
+  return;
+}
+
+const ReadConf::BleClassesConf & ReadConf::get_ble_classes_config() {
+  return this->_ble_classes;
 }

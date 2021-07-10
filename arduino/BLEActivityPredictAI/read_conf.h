@@ -36,9 +36,17 @@ class ReadConf  {
     class BleCNNConfig {
       public:
         int look_back_window_size; // The number of readings needed for a prediction
+        int num_features; // The number of features passed to model e.g. x,y,z, accelerometer readings
         int arena_size; // Number of bytes to allocate for TF Lite Tensor Arena.
     };
-    
+
+    /* Classification classes
+    */
+    class BleClassesConf {
+      public:
+        int num_classes;
+        char ** class_names; // Dynamically allocated array of string
+    };
   private:
     /* Member variables
     */
@@ -46,13 +54,15 @@ class ReadConf  {
     BleConnectorConfig _ble_connector_config;
     BlePredictorConfig _ble_predictor_config;
     BleCNNConfig _ble_cnn_config;
+    BleClassesConf _ble_classes;
 
     /* Methods
     */
     void _extract_ble_connector_config(JsonObject & config_doc);
     void _extract_ble_predictor_config(JsonObject & config_doc);
     void _extract_ble_cnn_config(JsonObject & config_doc);
-    
+    void _extract_ble_classes(JsonObject & config_doc);
+
   public:
     /* Methods to manage and extract different config objects.
     */
@@ -61,6 +71,7 @@ class ReadConf  {
     const BleConnectorConfig & get_ble_connector_config();
     const BlePredictorConfig & get_ble_predictor_config();
     const BleCNNConfig & get_ble_cnn_config();
+    const BleClassesConf & get_ble_classes_config();
 };
 
 #endif // READ_CONF_H
