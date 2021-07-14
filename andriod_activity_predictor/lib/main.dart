@@ -13,7 +13,7 @@ class ActivityManager extends StatelessWidget {
   /*
   We need to load the JSON config before starting the App. For this we
   need a FutureBuilder as the return from loading the config is async.
-  So here we block on loading the JSON and when done we build the
+  So here we wait on loading the JSON and when done we build the
   landing page with the config cascaded as a parameter.
    */
   Widget _futureBuildLandingPage(BuildContext context) {
@@ -35,7 +35,7 @@ class ActivityManager extends StatelessWidget {
 
   Widget _buildLandingPage(BuildContext context, Map<String, dynamic> conf) {
     return MaterialApp(
-      title: 'BLE Activity Manager',
+      title: 'Arduino BLE Activity Manager',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
@@ -105,10 +105,13 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
 
-    /* Create list of valid Activity device names
+    /* Create list of valid Activity device names that we will allow
+    connection to so we can interact with the respective Arduino sketch.
+    This is used to filter the list of all Bluetooth devices visible so
+    we can identify just the ones that are our target Arduino devices.
      */
-    _activityDevices.add("ActivityPredictor");
-    _activityDevices.add("ActivityCollector");
+    _activityDevices.add(conf["ble_collector"]["ble_collector"]);
+    _activityDevices.add(conf["ble_collector"]["service_name"]);
 
     widget.flutterBlue.connectedDevices
         .asStream()
@@ -125,10 +128,12 @@ class _MyHomePageState extends State<MyHomePage> {
     widget.flutterBlue.startScan();
   }
 
-  ListView _buildListViewOfDevices() {
-    List<Container> containers = [];
+  Widget _buildListViewOfDevices() {
+    List<Container> arduinoContainers = [];
+    List<Container> otherContainers = [];
+
     for (BluetoothDevice device in widget.arduinoDevicesList) {
-      containers.add(
+      arduinoContainers.add(
         Container(
           height: 50,
           child: Row(
@@ -172,10 +177,59 @@ class _MyHomePageState extends State<MyHomePage> {
       );
     }
 
-    return ListView(
-      padding: const EdgeInsets.all(8),
-      children: <Widget>[
-        ...containers,
+    for (BluetoothDevice device in widget.otherDevicesList) {
+      otherContainers.add(
+        Container(
+          height: 50,
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  children: <Widget>[
+                    Text(device.name == '' ? '(unknown device)' : device.name),
+                    Text(device.id.toString()),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.all(8),
+          child:
+              Text("Activity Manager Devices", style: TextStyle(fontSize: 20)),
+        ),
+        Image(image: AssetImage("assets/images/arduino.png")),
+        Divider(height: 20, thickness: 2, indent: 20, endIndent: 20),
+        Container(
+          height: 150,
+          child: ListView(
+            padding: const EdgeInsets.all(8),
+            children: <Widget>[
+              ...arduinoContainers,
+            ],
+          ),
+        ),
+        Divider(height: 20, thickness: 2, indent: 20, endIndent: 20),
+        Padding(
+          padding: EdgeInsets.all(8),
+          child:
+          Text("Other Bluetooth Devices", style: TextStyle(fontSize: 20)),
+        ),
+        Container(
+          height: 150,
+          child: ListView(
+            padding: const EdgeInsets.all(8),
+            children: <Widget>[
+              ...otherContainers,
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -268,7 +322,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  ListView _buildView() {
+  Widget _buildView() {
     print("Tick");
     if (_connectedDevice != null) {
       return _buildConnectDeviceView();

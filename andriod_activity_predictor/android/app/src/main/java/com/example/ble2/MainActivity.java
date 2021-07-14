@@ -1,4 +1,4 @@
-package com.example.andriod_activity_predictor;
+package com.example.ble2;
 
 import io.flutter.embedding.android.FlutterActivity;
 

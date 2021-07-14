@@ -1,6 +1,6 @@
-# andriod_activity_predictor
+# ble2
 
-Connect to Arduino over Bluetooth to predict human activities
+A new Flutter project.
 
 ## Getting Started
 

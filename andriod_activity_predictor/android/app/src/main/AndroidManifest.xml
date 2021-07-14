@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.andriod_activity_predictor">
+    package="com.example.ble2">
    <application
-        android:label="andriod_activity_predictor"
+        android:label="ble2"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
