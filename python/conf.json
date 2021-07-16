@@ -46,6 +46,7 @@
   "classes": [
     {
       "class_name": "circle",
+      "colour": "red",
       "one_hot": [
         1,
         0,
@@ -54,6 +55,7 @@
     },
     {
       "class_name": "stationary",
+      "colour": "blue",
       "one_hot": [
         0,
         1,
@@ -62,6 +64,7 @@
     },
     {
       "class_name": "up-down",
+      "colour": "green",
       "one_hot": [
         0,
         0,

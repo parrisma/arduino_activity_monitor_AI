@@ -81,9 +81,15 @@ class _MyHomePageState extends State<MyHomePage> {
 
   final Map<String, dynamic> conf;
   BluetoothDevice _connectedDevice;
-  BluetoothCharacteristic _ConnectedCharacteristic;
+  BluetoothCharacteristic _connectedCharacteristic;
   List<BluetoothService> _services;
   List<String> _activityDevices = [];
+  bool _connecting = false;
+  String _predictorName = "";
+  String _collectorName = "";
+  String _predictorCharacteristicName = "";
+  String _collectorCharacteristicName = "";
+  String _prediction = "";
 
   /* This is called for every Bluetooth device that is currently advertising
      itself. If the device name matches one of our expected Arduino device
@@ -110,8 +116,22 @@ class _MyHomePageState extends State<MyHomePage> {
     This is used to filter the list of all Bluetooth devices visible so
     we can identify just the ones that are our target Arduino devices.
      */
-    _activityDevices.add(conf["ble_collector"]["ble_collector"]);
-    _activityDevices.add(conf["ble_collector"]["service_name"]);
+    setState(() {
+      _predictorName = conf["ble_predictor"]["service_name"].toString();
+      _predictorCharacteristicName =
+          conf["ble_predictor"]["characteristic_uuid"].toString() +
+              conf["ble_predictor"]["ble_base_uuid"].toString();
+      _predictorCharacteristicName = _predictorCharacteristicName.toLowerCase();
+
+      _collectorName = conf["ble_collector"]["service_name"].toString();
+      _collectorCharacteristicName =
+          conf["ble_collector"]["characteristic_uuid"].toString() +
+              conf["ble_predictor"]["ble_base_uuid"].toString();
+      _collectorCharacteristicName = _collectorCharacteristicName.toLowerCase();
+
+      _activityDevices.add(_collectorName);
+      _activityDevices.add(_predictorName);
+    });
 
     widget.flutterBlue.connectedDevices
         .asStream()
@@ -128,6 +148,17 @@ class _MyHomePageState extends State<MyHomePage> {
     widget.flutterBlue.startScan();
   }
 
+  /*
+  View that shows a list of all Bluetooth devices separated into
+  Arduino services we can connect to and other visible Bluetooth
+  devices.
+
+  For the services we can connect to we show a "connect" button
+  that connects to the specific device. We then set the connected
+  device global to that device. Then based on the type of device we
+  have connected to Predictor or Collector a specialised view will
+  be show allowing for that specific interaction.
+   */
   Widget _buildListViewOfDevices() {
     List<Container> arduinoContainers = [];
     List<Container> otherContainers = [];
@@ -152,12 +183,15 @@ class _MyHomePageState extends State<MyHomePage> {
                       MaterialStateProperty.all<Color>(Colors.blue),
                 ),
                 child: Text(
-                  'Connect',
+                  _connecting ? 'Connecting' : 'connect',
                   style: TextStyle(color: Colors.white),
                 ),
                 onPressed: () async {
                   widget.flutterBlue.stopScan();
                   try {
+                    setState(() {
+                      _connecting = true;
+                    });
                     await device.connect();
                   } catch (e) {
                     if (e.code != 'already_connected') {
@@ -219,7 +253,7 @@ class _MyHomePageState extends State<MyHomePage> {
         Padding(
           padding: EdgeInsets.all(8),
           child:
-          Text("Other Bluetooth Devices", style: TextStyle(fontSize: 20)),
+              Text("Other Bluetooth Devices", style: TextStyle(fontSize: 20)),
         ),
         Container(
           height: 150,
@@ -254,11 +288,11 @@ class _MyHomePageState extends State<MyHomePage> {
                   widget.readValues[characteristic.uuid] = value;
                   print(utf8.decode(value));
                 });
-                if (_ConnectedCharacteristic != null) {
+                if (_connectedCharacteristic != null) {
                   await characteristic.setNotifyValue(false);
-                  _ConnectedCharacteristic = null;
+                  _connectedCharacteristic = null;
                 }
-                _ConnectedCharacteristic = characteristic;
+                _connectedCharacteristic = characteristic;
                 await characteristic.setNotifyValue(true);
               },
             ),
@@ -270,62 +304,115 @@ class _MyHomePageState extends State<MyHomePage> {
     return buttons;
   }
 
-  ListView _buildConnectDeviceView() {
-    List<Container> containers = [];
-
-    for (BluetoothService service in _services) {
-      List<Widget> characteristicsWidget = [];
-
-      for (BluetoothCharacteristic characteristic in service.characteristics) {
-        characteristicsWidget.add(
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Column(
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    Text(characteristic.uuid.toString(),
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                Row(
-                  children: <Widget>[
-                    ..._buildNotifyButton(characteristic),
-                  ],
-                ),
-                Row(
-                  children: <Widget>[
-                    Text('Value: ' +
-                        widget.readValues[characteristic.uuid].toString()),
-                  ],
-                ),
-                Divider(),
-              ],
-            ),
-          ),
-        );
+  /*
+  View specific to the Predictor device that is streaming movement
+  predictions. This view just shows the current prediction being
+  transmitted by the Arduino device that is running the movement
+  Neural net locally using tensor flow lite.
+   */
+  Widget _buildPredictorDeviceView() {
+    /* Iterate all services to find the service that contains the specific
+     notification characteristic used to transmit the neural net model
+     prediction.
+     */
+    if (_connectedCharacteristic == null) {
+      for (BluetoothService service in _services) {
+        /* Iterate the service characteristics and when (if) we find the
+      notify characteristic
+       */
+        for (BluetoothCharacteristic characteristic
+            in service.characteristics) {
+          /* If we haven't found the characteristic and the characteristic
+          bring iterated matched the Predictor notify characteristic UUID
+          set the connected characteristic.
+           */
+          if (_connectedCharacteristic == null) {
+            if (characteristic.uuid.toString() ==
+                _predictorCharacteristicName) {
+              _connectedCharacteristic = characteristic;
+            }
+          }
+        }
       }
-      containers.add(
-        Container(
-          child: ExpansionTile(
-              title: Text(service.uuid.toString()),
-              children: characteristicsWidget),
-        ),
-      );
     }
 
-    return ListView(
-      padding: const EdgeInsets.all(8),
-      children: <Widget>[
-        ...containers,
+    setState(() {
+      _prediction = "----------";
+    });
+    if (_connectedCharacteristic != null) {
+      if (_connectedCharacteristic.properties.notify) {
+        _connectedCharacteristic.value.listen((value) {
+          () async {
+            await _connectedCharacteristic.setNotifyValue(true);
+            _connectedCharacteristic.value.listen((value) async {
+              print(utf8.decode(value));
+              _prediction = utf8.decode(value);
+            });
+          }();
+        });
+      } else {
+        setState(() {
+          _prediction = "Error: not notifiable";
+        });
+      }
+    } else {
+      setState(() {
+        _prediction = "Error: no characteristic";
+      });
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.all(8),
+          child: Text("Activity Predictor", style: TextStyle(fontSize: 20)),
+        ),
+        Image(image: AssetImage("assets/images/arduino.png")),
+        Divider(height: 20, thickness: 2, indent: 20, endIndent: 20),
+        Padding(
+          padding: EdgeInsets.all(8),
+          child: Column(
+            children: [
+              Text("Prediction", style: TextStyle(fontSize: 20)),
+              Text(_prediction, style: TextStyle(fontSize: 20)),
+            ],
+          ),
+        ),
+        Divider(height: 20, thickness: 2, indent: 20, endIndent: 20),
+        ButtonTheme(
+          minWidth: 10,
+          height: 20,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: ElevatedButton(
+              style: ButtonStyle(
+                backgroundColor: MaterialStateProperty.all<Color>(Colors.red),
+              ),
+              child: Text('Cancel', style: TextStyle(color: Colors.white)),
+              onPressed: () {
+                setState(() {
+                  _connectedCharacteristic = null;
+                  _connecting = false;
+                  _connectedDevice = null;
+                });
+              },
+            ),
+          ),
+        ),
       ],
     );
   }
 
   Widget _buildView() {
-    print("Tick");
     if (_connectedDevice != null) {
-      return _buildConnectDeviceView();
+      setState(() {
+        _connecting = false; // have connected to main device at this point
+      });
+      if (_connectedDevice.name == _predictorName) {
+        return _buildPredictorDeviceView();
+      } else {
+        return _buildPredictorDeviceView();
+      }
     }
     return _buildListViewOfDevices();
   }
