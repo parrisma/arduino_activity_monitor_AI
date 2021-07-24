@@ -322,13 +322,14 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _prediction = "----------";
     });
-    if (_connectedCharacteristic != null) {
+    if (_connectedCharacteristic != null && _connectedDevice != null) {
       if (_connectedCharacteristic.properties.notify) {
         () async {
           await _connectedCharacteristic.setNotifyValue(true);
           setState(() {
             if (_connectedCharacteristic != null) {
               _predictionStream = _connectedCharacteristic.value;
+              _predictionStream = _predictionStream.asBroadcastStream();
             }
           });
         }();
@@ -386,17 +387,12 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                     child:
                         Text('Cancel', style: TextStyle(color: Colors.white)),
-                    onPressed: () {
+                    onPressed: () async {
+                      if (_connectedDevice != null) {
+                        await _connectedDevice.disconnect();
+                      }
                       setState(() {
-                        _connecting = false;
-                        if (_connectedCharacteristic != null) {
-                          _connectedCharacteristic.setNotifyValue(false);
-                          _connectedCharacteristic = null;
-                        }
-                        if (_connectedDevice != null) {
-                          _connectedDevice.disconnect();
-                          _connectedDevice = null;
-                        }
+                        _connectedDevice = null;
                       });
                     },
                   ),
