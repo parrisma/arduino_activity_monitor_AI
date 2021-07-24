@@ -90,6 +90,8 @@ class _MyHomePageState extends State<MyHomePage> {
   String _predictorCharacteristicName = "";
   String _collectorCharacteristicName = "";
   String _prediction = "";
+  Map<String, String> _predictionClassToColour = {};
+  Stream<List<int>> _predictionStream;
 
   /* This is called for every Bluetooth device that is currently advertising
      itself. If the device name matches one of our expected Arduino device
@@ -129,6 +131,10 @@ class _MyHomePageState extends State<MyHomePage> {
               conf["ble_predictor"]["ble_base_uuid"].toString();
       _collectorCharacteristicName = _collectorCharacteristicName.toLowerCase();
 
+      for (dynamic predictionClass in conf["classes"]) {
+        _predictionClassToColour[predictionClass["class_name"]] =
+            predictionClass["colour"];
+      }
       _activityDevices.add(_collectorName);
       _activityDevices.add(_predictorName);
     });
@@ -268,40 +274,17 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  List<ButtonTheme> _buildNotifyButton(BluetoothCharacteristic characteristic) {
-    List<ButtonTheme> buttons = [];
-
-    if (characteristic.properties.notify) {
-      buttons.add(
-        ButtonTheme(
-          minWidth: 10,
-          height: 20,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: ElevatedButton(
-              style: ButtonStyle(
-                backgroundColor: MaterialStateProperty.all<Color>(Colors.green),
-              ),
-              child: Text('NOTIFY', style: TextStyle(color: Colors.white)),
-              onPressed: () async {
-                characteristic.value.listen((value) {
-                  widget.readValues[characteristic.uuid] = value;
-                  print(utf8.decode(value));
-                });
-                if (_connectedCharacteristic != null) {
-                  await characteristic.setNotifyValue(false);
-                  _connectedCharacteristic = null;
-                }
-                _connectedCharacteristic = characteristic;
-                await characteristic.setNotifyValue(true);
-              },
-            ),
-          ),
-        ),
-      );
+  /*
+  Convert the predicted activity class name to the image of the
+  arduino board with the colour LED set to the corresponding colour. If
+  there is no mapping return the default images showing LED as off.
+   */
+  Image _classToImage(String className) {
+    String base = "arduino";
+    if (_predictionClassToColour.containsKey(className)) {
+      base = base + "-" + _predictionClassToColour[className];
     }
-
-    return buttons;
+    return Image(image: AssetImage("assets/images/" + base + ".png"));
   }
 
   /*
@@ -341,15 +324,14 @@ class _MyHomePageState extends State<MyHomePage> {
     });
     if (_connectedCharacteristic != null) {
       if (_connectedCharacteristic.properties.notify) {
-        _connectedCharacteristic.value.listen((value) {
-          () async {
-            await _connectedCharacteristic.setNotifyValue(true);
-            _connectedCharacteristic.value.listen((value) async {
-              print(utf8.decode(value));
-              _prediction = utf8.decode(value);
-            });
-          }();
-        });
+        () async {
+          await _connectedCharacteristic.setNotifyValue(true);
+          setState(() {
+            if (_connectedCharacteristic != null) {
+              _predictionStream = _connectedCharacteristic.value;
+            }
+          });
+        }();
       } else {
         setState(() {
           _prediction = "Error: not notifiable";
@@ -361,46 +343,68 @@ class _MyHomePageState extends State<MyHomePage> {
       });
     }
 
-    return Column(
-      children: [
-        Padding(
-          padding: EdgeInsets.all(8),
-          child: Text("Activity Predictor", style: TextStyle(fontSize: 20)),
-        ),
-        Image(image: AssetImage("assets/images/arduino.png")),
-        Divider(height: 20, thickness: 2, indent: 20, endIndent: 20),
-        Padding(
-          padding: EdgeInsets.all(8),
-          child: Column(
+    return StreamBuilder<List<int>>(
+        stream: _predictionStream,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            _prediction = "**Error**";
+          } else {
+            if (snapshot.data != null) {
+              _prediction = utf8.decode(snapshot.data).trim();
+            } else {
+              _prediction = "Disconnected";
+            }
+          }
+          return Column(
             children: [
-              Text("Prediction", style: TextStyle(fontSize: 20)),
-              Text(_prediction, style: TextStyle(fontSize: 20)),
-            ],
-          ),
-        ),
-        Divider(height: 20, thickness: 2, indent: 20, endIndent: 20),
-        ButtonTheme(
-          minWidth: 10,
-          height: 20,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: ElevatedButton(
-              style: ButtonStyle(
-                backgroundColor: MaterialStateProperty.all<Color>(Colors.red),
+              Padding(
+                padding: EdgeInsets.all(8),
+                child:
+                    Text("Activity Predictor", style: TextStyle(fontSize: 20)),
               ),
-              child: Text('Cancel', style: TextStyle(color: Colors.white)),
-              onPressed: () {
-                setState(() {
-                  _connectedCharacteristic = null;
-                  _connecting = false;
-                  _connectedDevice = null;
-                });
-              },
-            ),
-          ),
-        ),
-      ],
-    );
+              _classToImage(_prediction),
+              Divider(height: 20, thickness: 2, indent: 20, endIndent: 20),
+              Padding(
+                padding: EdgeInsets.all(8),
+                child: Column(
+                  children: [
+                    Text("Prediction", style: TextStyle(fontSize: 20)),
+                    Text(_prediction, style: TextStyle(fontSize: 20)),
+                  ],
+                ),
+              ),
+              Divider(height: 20, thickness: 2, indent: 20, endIndent: 20),
+              ButtonTheme(
+                minWidth: 10,
+                height: 20,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: ElevatedButton(
+                    style: ButtonStyle(
+                      backgroundColor:
+                          MaterialStateProperty.all<Color>(Colors.red),
+                    ),
+                    child:
+                        Text('Cancel', style: TextStyle(color: Colors.white)),
+                    onPressed: () {
+                      setState(() {
+                        _connecting = false;
+                        if (_connectedCharacteristic != null) {
+                          _connectedCharacteristic.setNotifyValue(false);
+                          _connectedCharacteristic = null;
+                        }
+                        if (_connectedDevice != null) {
+                          _connectedDevice.disconnect();
+                          _connectedDevice = null;
+                        }
+                      });
+                    },
+                  ),
+                ),
+              ),
+            ],
+          );
+        });
   }
 
   Widget _buildView() {
