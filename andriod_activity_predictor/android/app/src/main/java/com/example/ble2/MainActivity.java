@@ -1,4 +1,4 @@
-package com.example.ble2;
+package edu.e2pii.activity_manager;
 
 import io.flutter.embedding.android.FlutterActivity;
 
