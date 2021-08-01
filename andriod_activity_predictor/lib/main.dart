@@ -83,6 +83,7 @@ class _MyHomePageState extends State<MyHomePage> {
   final Map<String, dynamic> conf; // JSON Config
 
   BluetoothDevice _connectedDevice; // The BLE we are connected to
+  bool _deviceReady = false;
   BluetoothCharacteristic _connectedCharacteristic; // The live characteristic
   int _characteristicMTULength;
   List<BluetoothService> _services;
@@ -95,19 +96,15 @@ class _MyHomePageState extends State<MyHomePage> {
   Stream<List<int>> _predictionStream; // The BLE prediction stream
   Map<String, String> _predictionClassToColour = {};
 
-  String _collectorName = ""; // Name of Arduino BLE Collector service
-  String _collectorCharacteristicName = "";
   Stream<List<int>> _collectionStream; // The BlE accelerometer stream
-  String _accelerometerReadings = "";
-  final String csvHeaderRow =
-      "index,accel_x,accel_y,accel_z"; // ToDo: move to json Conf
   String _readings = "";
   List<String> _classTypes = [];
   String _classToRecord = "";
   bool _recording = false;
   String _mode = "";
   String _buttonAction = "";
-  Collector _collector = new Collector();
+  Future<List<String>> _collectorFileList;
+  Collector _collector;
 
   /* This is called for every Bluetooth device that is currently advertising
      itself. If the device name matches one of our expected Arduino device
@@ -147,21 +144,17 @@ class _MyHomePageState extends State<MyHomePage> {
       _predictorCharacteristicName = _predictorCharacteristicName.toLowerCase();
       predictorCharacteristicLen = conf["ble_predictor"]["characteristic_len"];
 
-      _collectorName = conf["ble_collector"]["service_name"].toString();
-      _collectorCharacteristicName =
-          conf["ble_collector"]["characteristic_uuid"].toString() +
-              conf["ble_collector"]["ble_base_uuid"].toString();
-      _collectorCharacteristicName = _collectorCharacteristicName.toLowerCase();
-      collectorCharacteristicLen = conf["ble_collector"]["characteristic_len"];
-      _characteristicMTULength =
-          max(collectorCharacteristicLen, predictorCharacteristicLen);
+      _collector = new Collector.from(conf);
+
+      _characteristicMTULength = max(
+          _collector.collectorCharacteristicLen, predictorCharacteristicLen);
 
       for (dynamic predictionClass in conf["classes"]) {
         _predictionClassToColour[predictionClass["class_name"]] =
             predictionClass["colour"];
         _classTypes.add(predictionClass["class_name"]);
       }
-      _activityDevices.add(_collectorName);
+      _activityDevices.add(_collector.collectorName);
       _activityDevices.add(_predictorName);
     });
 
@@ -231,6 +224,8 @@ class _MyHomePageState extends State<MyHomePage> {
                     });
                     await device.connect();
                     await device.requestMtu(_characteristicMTULength);
+                    await Future.delayed(Duration(seconds: 2));
+                    _deviceReady = true;
                   } catch (e) {
                     if (e.code != 'already_connected') {
                       throw e;
@@ -448,7 +443,7 @@ class _MyHomePageState extends State<MyHomePage> {
   data.
    */
   Widget _buildCollectorDeviceView() {
-    _findAndSetCharacteristic(_collectorCharacteristicName);
+    _findAndSetCharacteristic(_collector.collectorCharacteristicName);
 
     setState(() {
       _prediction = "----------";
@@ -458,9 +453,6 @@ class _MyHomePageState extends State<MyHomePage> {
         if (!_connectedCharacteristic.isNotifying) {
           () async {
             await _connectedCharacteristic.setNotifyValue(true);
-            _connectedCharacteristic.value.listen((value) {
-              print(utf8.decode(value));
-            });
             setState(() {
               if (_connectedCharacteristic != null) {
                 _collectionStream = _connectedCharacteristic.value;
@@ -493,6 +485,10 @@ class _MyHomePageState extends State<MyHomePage> {
       _classToRecord = _classTypes[0];
     }
 
+    if (_collectorFileList == null) {
+      _collectorFileList = _collector.listSavedCollectorFiles();
+    }
+
     return StreamBuilder<List<int>>(
         stream: _collectionStream,
         builder: (BuildContext context, AsyncSnapshot<dynamic> snapshot) {
@@ -500,15 +496,16 @@ class _MyHomePageState extends State<MyHomePage> {
             _readings = "**Error**";
           } else {
             if (snapshot.data != null) {
-              _readings = utf8.decode(snapshot.data).trim();
+              _readings = Collector.decodeReadings(snapshot.data);
               if (_recording) {
-                _collector.writeReading(_readings);
+                _readings = _collector.writeReading(_readings);
               }
             } else {
               _readings = "Disconnected";
             }
           }
           return Column(
+            // ToDo - perhaps recording should be its own view ?
             children: [
               Padding(
                 padding: EdgeInsets.all(8),
@@ -540,7 +537,53 @@ class _MyHomePageState extends State<MyHomePage> {
                           );
                         }).toList()),
                     Text(_mode, style: TextStyle(fontSize: 20)),
-                    Text(_readings, style: TextStyle(fontSize: 20)),
+                    Container(
+                        margin: const EdgeInsets.all(3.0),
+                        padding: const EdgeInsets.all(3.0),
+                        decoration: BoxDecoration(
+                            border: _recording
+                                ? Border.all(color: Colors.red)
+                                : Border.all(color: Colors.grey)),
+                        child: Text(_readings, style: TextStyle(fontSize: 20))),
+                    _recording
+                        ? Text("Saving To", style: TextStyle(fontSize: 20))
+                        : Text("Saved Files", style: TextStyle(fontSize: 20)),
+                    Container(
+                        height: 100,
+                        margin: const EdgeInsets.all(15.0),
+                        padding: const EdgeInsets.all(3.0),
+                        decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey)),
+                        child: _recording
+                            ? Text(_collector.currentRecordFileName,
+                                style: TextStyle(fontSize: 20))
+                            : FutureBuilder(
+                                future: _collectorFileList,
+                                builder: (BuildContext context,
+                                    AsyncSnapshot snapshot) {
+                                  if (snapshot.connectionState ==
+                                      ConnectionState.done) {
+                                    return Scrollbar(
+                                        thickness: 10,
+                                        isAlwaysShown: true,
+                                        child: ListView.builder(
+                                            itemCount:
+                                                snapshot.data?.length ?? 0,
+                                            itemBuilder: (context, index) {
+                                              return ListTile(
+                                                title: Text(
+                                                    snapshot.data[index],
+                                                    style: TextStyle(
+                                                        fontSize: 20)),
+                                              );
+                                            }));
+                                  } else {
+                                    return Center(
+                                        child: Text("Loading",
+                                            style: TextStyle(fontSize: 20)));
+                                  }
+                                },
+                              )),
                     ElevatedButton(
                       style: ButtonStyle(
                         backgroundColor:
@@ -554,6 +597,12 @@ class _MyHomePageState extends State<MyHomePage> {
                         });
                         if (_recording) {
                           _collector.newRecordFile(_classToRecord);
+                        } else {
+                          _collector.closeRecordFile();
+                          setState(() {
+                            _collectorFileList =
+                                _collector.listSavedCollectorFiles();
+                          });
                         }
                       },
                     ),
@@ -576,9 +625,13 @@ class _MyHomePageState extends State<MyHomePage> {
                     onPressed: () async {
                       setState(() {
                         _connectedDevice = null;
+                        _recording = false;
                       });
+                      _collector.closeRecordFile();
                       if (_connectedDevice != null) {
                         await _connectedDevice.disconnect();
+                        _connectedDevice = null;
+                        _deviceReady = false;
                       }
                     },
                   ),
@@ -590,7 +643,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildView() {
-    if (_connectedDevice != null) {
+    if (_connectedDevice != null && _deviceReady) {
       setState(() {
         _connecting = false; // have connected to main device at this point
       });
