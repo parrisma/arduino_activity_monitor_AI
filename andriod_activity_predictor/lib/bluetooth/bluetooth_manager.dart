@@ -164,8 +164,17 @@ class BluetoothManager {
     try {
       _connecting = true;
       await connectedDevice.connect();
+
+      /* Request the MTU of teh required size and then wait until the
+         current MTU size matches the requested MTU size.
+       */
       await connectedDevice.requestMtu(characteristicMTULength);
-      await Future.delayed(Duration(seconds: 2));
+      int mtu = await device.mtu.first;
+      while (mtu != characteristicMTULength) {
+        print("Waiting for requested MTU");
+        await Future.delayed(Duration(seconds: 1));
+        mtu = await device.mtu.first;
+      }
       _connecting = false;
       deviceReady = true;
     } catch (e) {

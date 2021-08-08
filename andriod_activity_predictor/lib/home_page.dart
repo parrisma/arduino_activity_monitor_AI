@@ -125,6 +125,8 @@ class _MyHomePageState extends State<MyHomePage> {
     List<Container> arduinoContainers = [];
     List<Container> otherContainers = [];
 
+    setState(() {});
+
     for (BluetoothDevice device in widget.arduinoDevicesList) {
       arduinoContainers.add(
         Container(
