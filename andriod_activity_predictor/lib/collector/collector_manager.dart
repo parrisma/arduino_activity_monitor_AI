@@ -5,9 +5,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter_file_manager/flutter_file_manager.dart';
 
 /* Class to manage the process of collecting and saving accelerometer readings
-   from the Arduino Nana
+   from the Arduino Nano
  */
-class Collector {
+class CollectorManager {
   String _rootPath;
   String _recordFileName = "";
   File _recordFile;
@@ -20,11 +20,11 @@ class Collector {
 
   /* Prevent default construction
    */
-  Collector._();
+  CollectorManager._();
 
   /* Boot strap the class given the JSOn config.
    */
-  Collector.from(Map<String, dynamic> jsonConfig) {
+  CollectorManager.from(Map<String, dynamic> jsonConfig) {
     /*
     Get the app path where we can write files.
      */
