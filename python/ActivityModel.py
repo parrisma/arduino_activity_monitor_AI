@@ -10,7 +10,7 @@ from matplotlib import rcParams
 import re
 import glob
 from os import listdir, remove
-from os.path import isfile, join, exists
+from os.path import isfile, join
 from sklearn.model_selection import train_test_split
 from TFLiteGenerator import TFLiteGenerator
 from Conf import Conf
@@ -110,7 +110,6 @@ class ActivityModel:
         for cls in conf.config['classes']:
             class_name = cls['class_name']
             one_hot = cls['one_hot']
-            x = tuple((1, 2, 3))
             self._activity_classes.append(tuple((re.compile('^' + class_name + '.*\\.csv$'),
                                                  np.array(one_hot),
                                                  class_name)))
@@ -138,8 +137,8 @@ class ActivityModel:
 
         Because we pass a batch of inputs into the model for training we need to add the additional dimension.
         If the model shape is (20, 3, 3) and we pass in a batch Keras expects (None, 20, 3, 3) where None
-        is a place holder for a batch of unknown (at the point of model compilation) inputs. So we take the
-        input shape as defined by the model and we add the additional leading dimension of 1. Where it is 1 because
+        is a placeholder for a batch of unknown (at the point of model compilation) inputs. So we take the
+        input shape as defined by the model, and we add the additional leading dimension of 1. Where it is 1 because
         we are passing in a single item for classification rather than a list.
 
         :return: Tuple of integers describing the required input shape
@@ -200,7 +199,7 @@ class ActivityModel:
         Plot the training and validation losses. This is done on a dual axis where the last 80% of the points
         are re-plotted so that there is the effect of a zoom as they will be on a new scale beyond (hopefully)
         the point at which the main training gains have been made.
-        :param history: The history from the Keras training.
+        :param: history: The history from the Keras training.
         """
         fig = plt.figure()
         ax = fig.add_subplot(111)
@@ -276,6 +275,7 @@ class ActivityModel:
         """
         Take a full data set and (optionally) reshape it as needed for the model that is the target for the
         training.
+
         :param x_all: A fully loaded set of x values.
 
         :return: Reshaped set of x values in shape required by currently loaded model.
@@ -286,8 +286,8 @@ class ActivityModel:
 
     def load_training_data(self) -> None:
         """
-        Load all of the data files that are of known activity class and create x_train,y_train,x_test,y_test split
-        in the given ratio. By default the data is split into frames that are the size of the defined look back
+        Load all the data files that are of known activity class and create x_train,y_train,x_test,y_test split
+        in the given ratio. By default, the data is split into frames that are the size of the defined look back
         window.
 
         Then once the data is loaded it is reshaped (if needed) to match the specific input shape of the target
@@ -351,16 +351,18 @@ class ActivityModel:
     def run_experiment(self,
                        experiment_file: str = './experiment-1.csv') -> None:
         """
-        Load the experiment file and predict the sequence of activity it collected
+        Load the experiment file and predict the sequence of activity it collected. Do this by selecting 10%
+        of random entry points and 'look_back_window' slice of observations.
         """
         print("Loading experiment[{}]".format(experiment_file))
         # Load csv as DataFrame and remove the first index column.
         x = np.delete(pd.read_csv(experiment_file).to_numpy(), 0, 1)
         x, _ = self.data_to_look_back_data_set(x, np.zeros((1)))
-        shape = (1, x.shape[1], x.shape[2])
+        shape = (1, x.shape[1], x.shape[2], 1)
+        # for i in np.random.randint(0, x.shape[0], int(x.shape[0] * .1)):  # Run 10% as tests
         for i in range(x.shape[0]):
             certainty, activity_name = self.predict(np.reshape(x[i], shape))
-            print("Activity [{}] with certainty {:.0f}%".format(activity_name, certainty))
+            print("Sample # [{}] Activity [{}] with certainty {:.0f}%".format(i, activity_name, certainty))
         return
 
     def data_to_look_back_data_set(self,
@@ -369,7 +371,7 @@ class ActivityModel:
         """
         Take x and y data and convert into look_back format data suitable for LSTM training.
         :param x_data: the X data set
-        :param x_data_one_hot: the one hot encoding of the data type of X (Circle etc)
+        :param x_data_one_hot: the one hot encoding of the data type of X (Circle etc.)
         :return: X,Y data as look back frames.
         """
         num_frames = len(x_data) - (self._look_back_window_size - 1)

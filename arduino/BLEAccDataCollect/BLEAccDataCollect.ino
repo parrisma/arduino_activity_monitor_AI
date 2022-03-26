@@ -64,8 +64,8 @@ void setup() {
   rgb_led.red();
 
 #ifdef DEBUG_LG
+  Serial.setTimeout(5000);
   Serial.begin(9600);    // initialize serial communication
-  while (!Serial);
 #endif
 
   /* Load thr JSON config that is exported from the host python project so that this

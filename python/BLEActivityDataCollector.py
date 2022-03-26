@@ -55,11 +55,11 @@ class BLEActivityDataCollector:
         self._ble_stream.open()
         return
 
-    def callback_accel_xyz(self, sender, data):
+    def callback_accel_xyz(self, sender, data) -> None:
         """
         Process a Notify event from the Arduino carrying a string encoded accelerometer update
-        :param sender: The details of the BLE Device sending the Notify
-        :param data: The data attached to the notify message
+        :param sender: The details of the BLE Device sending Notify
+        :param data: The data attached to notify message
         """
         ble_msg = BLEMessage(source=sender, value=data[:self._ble_characteristic_len - 1])  # drop terminator char
         self._ble_stream.write_value(ble_msg)
@@ -67,7 +67,7 @@ class BLEActivityDataCollector:
             print(str(ble_msg))
         return
 
-    async def run(self):
+    async def run(self) -> None:
         devices = await BleakScanner.discover()  # Scan for available BLE devices
 
         # Connect to the device 'ActivityCollector'; the exact device name is set in the JSON config.

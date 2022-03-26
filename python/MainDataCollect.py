@@ -27,7 +27,7 @@ class MainDataCollect:
 
     def _next_sequential_file(self) -> str:
         """
-        All data files for teh activity type are of the form <data_path>/type-<n>.csv e.g. <data_path>/circle-1.csv.
+        All data files for the activity type are of the form <data_path>/type-<n>.csv e.g. <data_path>/circle-1.csv.
         This function used the data path and the activity type and finds the next file in the sequence.
 
         :return: The full path and name of the next file in the activity sequence.
@@ -53,7 +53,7 @@ class MainDataCollect:
                             type=int)
         parser.add_argument("-a", "--activity",
                             help="The activity type being recorded",
-                            choices=['circle', 'up-down', 'stationary'])
+                            choices=['circle', 'up-down', 'stationary', 'experiment'])
         return parser.parse_args()
 
     def run(self) -> None:

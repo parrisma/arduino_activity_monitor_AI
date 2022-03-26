@@ -82,10 +82,10 @@ class MainFileActivityClassifier:
         # Run model tests using the test data split out from the loaded training data.
         activity_model.test()
 
-        # If an experiment file has been specified run predictions based on the aceeleromter data inteh
+        # If an experiment file has been specified run predictions based on the accelerometer data in the
         # experiment file.
         if self._experiment_file is not None:
-            activity_model.run_experiment()
+            activity_model.run_experiment(experiment_file=self._experiment_file)
         return
 
 

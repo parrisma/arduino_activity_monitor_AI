@@ -54,7 +54,7 @@ class TFLiteGenerator:
         """
         conv = tf.lite.TFLiteConverter.from_keras_model(model)
         if TFLiteGenerator.OPTIMIZE:
-            # It is possible to optimize the converted network for size. However depending on the chosen
+            # It is possible to optimize the converted network for size. However, depending on the chosen
             # network architecture that can require additional tuning to the optimization process. For
             # the networks in this example and the space capabilities of the Nano 33 Sense optimization
             # is not essential. See below for additional help on optimization.
