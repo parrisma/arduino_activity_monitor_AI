@@ -10,7 +10,7 @@ class MainLiveListener:
     _config_file: str
 
     def __init__(self):
-        args = self._get_args(description="Collect and store accelerometer data over Bluetooth from Arduino Nano ")
+        args = self._get_args(description="Listen to Nano in activity predictor mode and print predictions on screen")
         self._sample_time_in_seconds = args.sample_time
         self._config_file = args.json
         return

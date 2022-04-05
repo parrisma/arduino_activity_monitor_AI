@@ -47,7 +47,7 @@ class MainFileActivityClassifier:
                             default=ActivityModel.ModelType.default_model_type(),
                             type=ActivityModel.ModelType.valid_model_type)
         parser.add_argument("-g", "--generate",
-                            help="The path where the .cpp/.h files are generated for TFlite",
+                            help="The path where the .cpp/.h files are generated for TFLite",
                             default='./model-export/',
                             nargs='?',
                             type=BaseArgParser.valid_path)
