@@ -6,7 +6,7 @@ To do this we use an Arduino Nano Sense 33 BLE to capture the movement and also 
 
 The Project is in three parts
 
-##Technologies & tools used
+## Technologies & tools used
 
 * Python 3.8
 * PyCharm
